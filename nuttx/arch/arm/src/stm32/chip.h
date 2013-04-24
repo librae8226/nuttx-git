@@ -57,6 +57,11 @@
 #  if defined(CONFIG_STM32_VALUELINE)
 #    include "chip/stm32f100_pinmap.h"
 
+/* STM32 F103 Medium Density Family */
+/* STM32F103CB is provided in 48 pin packages */
+#  elif defined(CONFIG_ARCH_CHIP_STM32F103CBT6)
+#    include "chip/stm32f103cb_pinmap.h"
+
 /* STM32 F103 High Density Family */
 /* STM32F103RC, STM32F103RD, and STM32F103RE are all provided in 64 pin packages and differ
  * only in the available FLASH and SRAM.

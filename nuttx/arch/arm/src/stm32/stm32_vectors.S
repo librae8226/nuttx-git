@@ -113,7 +113,7 @@ stm32_vectors:
 
 /* Processor Exceptions */
 
-	.word	IDLE_STACK			/* Vector  0: Reset stack pointer */
+	.word	0x20005000			/* Vector  0: Reset stack pointer */
 	.word	__start				/* Vector  1: Reset vector */
 	.word	stm32_nmi			/* Vector  2: Non-Maskable Interrupt (NMI) */
 	.word	stm32_hardfault		/* Vector  3: Hard fault */
