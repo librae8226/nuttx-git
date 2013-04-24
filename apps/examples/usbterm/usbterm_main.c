@@ -72,6 +72,7 @@
 /****************************************************************************
  * Private Data
  ****************************************************************************/
+pthread_t custom_thread;
 
 /****************************************************************************
  * Public Data
@@ -96,8 +97,8 @@ struct usbterm_globals_s g_usbterm;
 #ifdef CONFIG_USBDEV_TRACE
 static int trace_callback(struct usbtrace_s *trace, void *arg)
 {
-  usbtrace_trprintf((trprintf_t)trmessage, trace->event, trace->value);
-  return 0;
+	usbtrace_trprintf((trprintf_t)trmessage, trace->event, trace->value);
+	return 0;
 }
 #endif
 
@@ -112,7 +113,7 @@ static int trace_callback(struct usbtrace_s *trace, void *arg)
 #ifdef CONFIG_USBDEV_TRACE
 static void dumptrace(void)
 {
-  (void)usbtrace_enumerate(trace_callback, NULL);
+	(void)usbtrace_enumerate(trace_callback, NULL);
 }
 #else
 #  define dumptrace()
@@ -128,53 +129,130 @@ static void dumptrace(void)
 
 FAR void *usbterm_listener(FAR void *parameter)
 {
-  message("usbterm_listener: Waiting for remote input\n");
-  for (;;)
-    {
-      /* Display the prompt string on the remote USB serial connection -- only
-       * if we know that there is someone listening at the other end.  The
-       * remote side must initiate the the conversation.
-       */
+	message("usbterm_listener: Waiting for remote input\n");
+	for (;;)
+	{
+		/* Display the prompt string on the remote USB serial connection -- only
+		 * if we know that there is someone listening at the other end.  The
+		 * remote side must initiate the the conversation.
+		 */
 
-      if (g_usbterm.peer)
-        {
-          fputs("\rusbterm> ", g_usbterm.outstream);
-          fflush(g_usbterm.outstream);
-        }
+		if (g_usbterm.peer)
+		{
+			fputs("\rusbterm> ", g_usbterm.outstream);
+			fflush(g_usbterm.outstream);
+		}
 
-      /* Get the next line of input from the remote USB serial connection */
+		/* Get the next line of input from the remote USB serial connection */
 
-      if (fgets(g_usbterm.inbuffer, CONFIG_EXAMPLES_USBTERM_BUFLEN, g_usbterm.instream))
-        {
-          /* If we receive anything, then we can be assured that there is someone
-           * with the serial driver open on the remote host.
-           */
+		if (fgets(g_usbterm.inbuffer, CONFIG_EXAMPLES_USBTERM_BUFLEN, g_usbterm.instream))
+		{
+			/* If we receive anything, then we can be assured that there is someone
+			 * with the serial driver open on the remote host.
+			 */
 
-          g_usbterm.peer = true;
+			g_usbterm.peer = true;
 
-          /* Echo the line on the local stdout */
+			/* Echo the line on the local stdout */
 
-          fputs(g_usbterm.inbuffer, stdout);
+			fputs(g_usbterm.inbuffer, stdout);
 
-          /* Display the prompt string on stdout */
+			/* Display the prompt string on stdout */
 
-          fputs("usbterm> ", stdout);
-          fflush(stdout);
-        }
+			fputs("usbterm> ", stdout);
+			fflush(stdout);
+		}
 
-      /* If USB tracing is enabled, then dump all collected trace data to stdout */
+		/* If USB tracing is enabled, then dump all collected trace data to stdout */
 
-      dumptrace();
-    }
+		dumptrace();
+	}
 
-  /* Won't get here */
+	/* Won't get here */
 
-  return NULL;
+	return NULL;
 }
 
+FAR void *custom_thread_entry(FAR void *parameter)
+{
+	FILE *outstream = (FILE *)parameter;
+	up_ledon(0xf);
+	for(;;) {
+		sleep(5);
+		up_ledon(0xf);
+		usleep(20000);
+		up_ledoff(0xf);
+	}
+	return NULL;
+}
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+int usbterm_main(int argc, char *argv[])
+{
+	char buf[64];
+	char input;
+	int outfd = 0;
+	int nb = 0;
+	int ret = 0;
+	pthread_attr_t attr_custom;
+
+	/* start a custom thread */
+	ret = pthread_attr_init(&attr_custom);
+	if (ret != OK)
+		goto out;
+
+	ret = pthread_create(&custom_thread, &attr_custom,
+			     custom_thread_entry, (pthread_addr_t)0);
+	if (ret != 0)
+		goto out;
+#if 0
+	/* start cdcacm things */
+	ret = cdcacm_initialize(0, NULL);
+	if (ret < 0)
+		goto out;
+
+	do {
+		outfd = open(USBTERM_DEVNAME, O_RDWR);
+		if (outfd < 0) {
+			int errcode = errno;
+			if (errcode == ENOTCONN)
+				sleep(1);
+			else
+				goto out;
+		}
+	} while (outfd < 0);
+
+	write(outfd, "Welcome to nuttx world!\n\r", 25);
+	for (;;) {
+		memset(buf, 0, sizeof(buf));
+		sprintf(buf, "read %d bytes\n\r", nb);
+		nb += read(outfd, &input, 1);
+		switch (input) {
+		case '\r':
+			write(outfd, "\n\r", 2);
+			break;
+		case '\b':
+			write(outfd, "\b \b", 3);
+			break;
+		default:
+			write(outfd, &input, 1);
+			break;
+		}
+		usleep(10000);
+	}
+#else
+	/* nsh */
+	nsh_initialize();
+	ret = nsh_consolemain(0, NULL);
+	if (ret < 0)
+		goto out;
+#endif
+
+out:
+	return -1;
+}
 
 /****************************************************************************
  * Name: usbterm_main
@@ -184,192 +262,213 @@ FAR void *usbterm_listener(FAR void *parameter)
  *
  ****************************************************************************/
 
-int usbterm_main(int argc, char *argv[])
+int _usbterm_main(int argc, char *argv[])
 {
-  pthread_attr_t attr;
-  int ret;
+	pthread_attr_t attr;
+	pthread_attr_t attr_custom;
+	int ret;
 
-  /* Initialize global data */
+	/* Initialize global data */
 
-  memset(&g_usbterm, 0, sizeof(struct usbterm_globals_s));
+	memset(&g_usbterm, 0, sizeof(struct usbterm_globals_s));
 
-  /* Initialization of the USB hardware may be performed by logic external to
-   * this test.
-   */
+	/* Initialization of the USB hardware may be performed by logic external to
+	 * this test.
+	 */
 
 #ifdef CONFIG_EXAMPLES_USBTERM_DEVINIT
-  message("usbterm_main: Performing external device initialization\n");
-  ret = usbterm_devinit();
-  if (ret != OK)
-    {
-      message("usbterm_main: usbterm_devinit failed: %d\n", ret);
-      goto errout;
-    }
+	message("usbterm_main: Performing external device initialization\n");
+	ret = usbterm_devinit();
+	if (ret != OK)
+	{
+		message("usbterm_main: usbterm_devinit failed: %d\n", ret);
+		goto errout;
+	}
 #endif
 
-  /* Initialize the USB serial driver */
+	/* Initialize the USB serial driver */
 
-  message("usbterm_main: Registering USB serial driver\n");
+	message("usbterm_main: Registering USB serial driver\n");
 #ifdef CONFIG_CDCACM
-  ret = cdcacm_initialize(0, NULL);
+	ret = cdcacm_initialize(0, NULL);
 #else
-  ret = usbdev_serialinitialize(0);
+	ret = usbdev_serialinitialize(0);
 #endif
-  if (ret < 0)
-    {
-      message("usbterm_main: ERROR: Failed to create the USB serial device: %d\n", -ret);
-      goto errout_with_devinit;
-    }
-  message("usbterm_main: Successfully registered the serial driver\n");
+	if (ret < 0)
+	{
+		message("usbterm_main: ERROR: Failed to create the USB serial device: %d\n", -ret);
+		goto errout_with_devinit;
+	}
+	message("usbterm_main: Successfully registered the serial driver\n");
 
 #if CONFIG_USBDEV_TRACE && CONFIG_USBDEV_TRACE_INITIALIDSET != 0
-  /* If USB tracing is enabled and tracing of initial USB events is specified,
-   * then dump all collected trace data to stdout
-   */
+	/* If USB tracing is enabled and tracing of initial USB events is specified,
+	 * then dump all collected trace data to stdout
+	 */
 
-  sleep(5);
-  dumptrace();
+	sleep(5);
+	dumptrace();
 #endif
 
-  /* Then, in any event, configure trace data collection as configured */
+	/* Then, in any event, configure trace data collection as configured */
 
-  usbtrace_enable(TRACE_BITSET);
+	usbtrace_enable(TRACE_BITSET);
 
-  /* Open the USB serial device for writing */
+	/* Open the USB serial device for writing */
 
-  do
-    {
-      message("usbterm_main: Opening USB serial driver\n");
+	do
+	{
+		message("usbterm_main: Opening USB serial driver\n");
 
-      g_usbterm.outstream = fopen(USBTERM_DEVNAME, "w");
-      if (g_usbterm.outstream == NULL)
-        {
-          int errcode = errno;
-          message("usbterm_main: ERROR: Failed to open " USBTERM_DEVNAME " for writing: %d\n",
-                  errcode);
+		g_usbterm.outstream = fopen(USBTERM_DEVNAME, "w");
+		if (g_usbterm.outstream == NULL)
+		{
+			int errcode = errno;
+			message("usbterm_main: ERROR: Failed to open " USBTERM_DEVNAME " for writing: %d\n",
+					errcode);
 
-          /* ENOTCONN means that the USB device is not yet connected */
+			/* ENOTCONN means that the USB device is not yet connected */
 
-          if (errcode == ENOTCONN)
-            {
-              message("usbterm_main:        Not connected. Wait and try again.\n");
-              sleep(5);
-            }
-          else
-            {
-              /* Give up on other errors */
+			if (errcode == ENOTCONN)
+			{
+				message("usbterm_main:        Not connected. Wait and try again.\n");
+				sleep(5);
+			}
+			else
+			{
+				/* Give up on other errors */
 
-              goto errout_with_devinit;
-            }
-        }
+				goto errout_with_devinit;
+			}
+		}
 
-      /* If USB tracing is enabled, then dump all collected trace data to stdout */
+		/* If USB tracing is enabled, then dump all collected trace data to stdout */
 
-      dumptrace();
-    }
-  while (g_usbterm.outstream == NULL);
+		dumptrace();
+	}
+	while (g_usbterm.outstream == NULL);
 
-  /* Open the USB serial device for reading.  Since we are already connected, this
-   * should not fail.
-   */
+	/* Open the USB serial device for reading.  Since we are already connected, this
+	 * should not fail.
+	 */
 
-  g_usbterm.instream = fopen(USBTERM_DEVNAME, "r");
-  if (g_usbterm.instream == NULL)
-    {
-      message("usbterm_main: ERROR: Failed to open " USBTERM_DEVNAME " for reading: %d\n", errno);
-      goto errout_with_outstream;
-    }
+	g_usbterm.instream = fopen(USBTERM_DEVNAME, "r");
+	if (g_usbterm.instream == NULL)
+	{
+		message("usbterm_main: ERROR: Failed to open " USBTERM_DEVNAME " for reading: %d\n", errno);
+		goto errout_with_outstream;
+	}
 
-  message("usbterm_main: Successfully opened the serial driver\n");
+	message("usbterm_main: Successfully opened the serial driver\n");
 
-  /* Start the USB term listener thread */
+	/* Start the USB term listener thread */
+#if 0
+	message("usbterm_main: Starting the listener thread\n");
 
-  message("usbterm_main: Starting the listener thread\n");
- 
-  ret = pthread_attr_init(&attr);
-  if (ret != OK)
-    {
-      message("usbterm_main: pthread_attr_init failed: %d\n", ret);
-      goto errout_with_streams;
-    }
+	ret = pthread_attr_init(&attr_custom);
+	if (ret != OK)
+	{
+		message("usbterm_main: pthread_attr_init failed: %d\n", ret);
+		goto errout_with_streams;
+	}
 
-  ret = pthread_create(&g_usbterm.listener, &attr,
-                       usbterm_listener, (pthread_addr_t)0);
-  if (ret != 0)
-    {
-      message("usbterm_main: Error in thread creation: %d\n", ret);
-      goto errout_with_streams;
-    }
+	ret = pthread_create(&g_usbterm.listener, &attr,
+			     usbterm_listener, (pthread_addr_t)0);
+	if (ret != 0)
+	{
+		message("usbterm_main: Error in thread creation: %d\n", ret);
+		goto errout_with_streams;
+	}
+#endif
+	/* Start the custom thread */
 
-  /* Send messages and get responses -- forever */
+	message("usbterm_main: Starting the listener thread\n");
 
-  message("usbterm_main: Waiting for local input\n");
-  for (;;)
-    {
-      /* Display the prompt string on stdout */
+	ret = pthread_attr_init(&attr_custom);
+	if (ret != OK)
+	{
+		message("usbterm_main: pthread_attr_init failed: %d\n", ret);
+		goto errout_with_streams;
+	}
 
-      fputs("usbterm> ", stdout);
-      fflush(stdout);
+	/* XXX */
+	ret = pthread_create(&custom_thread, &attr_custom,
+			     custom_thread_entry, (pthread_addr_t)g_usbterm.outstream);
+	if (ret != 0)
+	{
+		message("usbterm_main: Error in thread creation: %d\n", ret);
+		goto errout_with_streams;
+	}
 
-      /* Get the next line of input */
+	/* Send messages and get responses -- forever */
+
+	message("usbterm_main: Waiting for local input\n");
+	for (;;)
+	{
+		/* Display the prompt string on stdout */
+
+		fputs("usbterm> ", stdout);
+		fflush(stdout);
+
+		/* Get the next line of input */
 
 #ifdef CONFIG_EXAMPLES_USBTERM_FGETS
-      /* fgets returns NULL on end-of-file or any I/O error */
+		/* fgets returns NULL on end-of-file or any I/O error */
 
-      if (fgets(g_usbterm.outbuffer, CONFIG_EXAMPLES_USBTERM_BUFLEN, stdin) == NULL)
-        {
-          printf("ERROR: fgets failed: %d\n", errno);
-          return 1;
-        }
+		if (fgets(g_usbterm.outbuffer, CONFIG_EXAMPLES_USBTERM_BUFLEN, stdin) == NULL)
+		{
+			printf("ERROR: fgets failed: %d\n", errno);
+			return 1;
+		}
 #else
-      ret = readline(g_usbterm.outbuffer, CONFIG_EXAMPLES_USBTERM_BUFLEN, stdin, stdout);
+		ret = readline(g_usbterm.outbuffer, CONFIG_EXAMPLES_USBTERM_BUFLEN, stdin, stdout);
 
-      /* Readline normally returns the number of characters read,
-       * but will return EOF on end of file or if an error occurs.  Either
-       * will cause the session to terminate.
-       */
+		/* Readline normally returns the number of characters read,
+		 * but will return EOF on end of file or if an error occurs.  Either
+		 * will cause the session to terminate.
+		 */
 
-      if (ret == EOF)
-        {
-          printf("ERROR: readline failed: %d\n", ret);
-          return 1;
-        }
+		if (ret == EOF)
+		{
+			printf("ERROR: readline failed: %d\n", ret);
+			return 1;
+		}
 #endif
-      /* Is there anyone listening on the other end? */
+		/* Is there anyone listening on the other end? */
 
-      else if (g_usbterm.peer)
-        {
-          /* Yes.. Send the line of input via USB */
+		else if (g_usbterm.peer)
+		{
+			/* Yes.. Send the line of input via USB */
 
-          fputs(g_usbterm.outbuffer, g_usbterm.outstream);
+			fputs(g_usbterm.outbuffer, g_usbterm.outstream);
 
-          /* Display the prompt string on the remote USB serial connection */
+			/* Display the prompt string on the remote USB serial connection */
 
-          fputs("\rusbterm> ", g_usbterm.outstream);
-          fflush(g_usbterm.outstream);
-        }
-      else
-        {
-          printf("Still waiting for remote peer.  Please try again later.\n", ret);
-        }
+			fputs("\rusbterm> ", g_usbterm.outstream);
+			fflush(g_usbterm.outstream);
+		}
+		else
+		{
+			printf("Still waiting for remote peer.  Please try again later.\n", ret);
+		}
 
-      /* If USB tracing is enabled, then dump all collected trace data to stdout */
+		/* If USB tracing is enabled, then dump all collected trace data to stdout */
 
-      dumptrace();
-    }
+		dumptrace();
+	}
 
-  /* Error exits */
+	/* Error exits */
 
 errout_with_streams:
-  fclose(g_usbterm.instream);
+	fclose(g_usbterm.instream);
 errout_with_outstream:
-  fclose(g_usbterm.outstream);
+	fclose(g_usbterm.outstream);
 errout_with_devinit:
 #ifdef CONFIG_EXAMPLES_USBTERM_DEVINIT
-  usbterm_devuninit();
+	usbterm_devuninit();
 errout:
 #endif
-  message("usbterm_main:        Aborting\n");
-  return 1;
+	message("usbterm_main:        Aborting\n");
+	return 1;
 }
 
