@@ -1,5 +1,5 @@
 /************************************************************************************
- * configs/sam4s-xplained/src/sam_sram.c
+ * configs/arduino-due/src/arduino-due.h
  *
  *   Copyright (C) 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
@@ -33,50 +33,73 @@
  *
  ************************************************************************************/
 
+#ifndef __CONFIGS_ARDUINO_DUE_SRC_ARDUNO_DUE_H
+#define __CONFIGS_ARDUINO_DUE_SRC_ARDUNO_DUE_H
+
 /************************************************************************************
  * Included Files
  ************************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/compiler.h>
 
-#include <debug.h>
+#include <stdint.h>
 
-#include "up_arch.h"
-#include "sam4s_periphclks.h"
-#include "chip/sam3u_smc.h"
-#include "sam4s-xplained.h"
+#include <arch/irq.h>
+#include <nuttx/irq.h>
 
-#ifdef CONFIG_ARCH_EXTSRAM0
+#include "chip/sam_pinmap.h"
 
 /************************************************************************************
  * Pre-processor Definitions
  ************************************************************************************/
+/*   There are two user-controllable LEDs on board the Arduino Due board:
+ *
+ *     LED              GPIO
+ *     ---------------- -----
+ *     TX  Yellow LED   PA21
+ *     RX  Yellow LED   PC30
+ *
+ * Both are pulled high and can be illuminated by driving the corresponding
+ * GPIO output to low.
+ *
+ * These LEDs are not used by the board port unless CONFIG_ARCH_LEDS is
+ * defined.  In that case, the usage by the board port is defined in
+ * include/board.h and src/sam_leds.c. The LEDs are used to encode OS-related
+ * events as follows:
+ *
+ *   SYMBOL                Meaning                     LED state
+ *                                                   RX       TX
+ *   -------------------  -----------------------  -------- --------
+ *   LED_STARTED          NuttX has been started     OFF      OFF
+ *   LED_HEAPALLOCATE     Heap has been allocated    OFF      OFF
+ *   LED_IRQSENABLED      Interrupts enabled         OFF      OFF
+ *   LED_STACKCREATED     Idle stack created         ON       OFF
+ *   LED_INIRQ            In an interrupt              No change
+ *   LED_SIGNAL           In a signal handler          No change
+ *   LED_ASSERTION        An assertion failed          No change
+ *   LED_PANIC            The system has crashed     OFF      Blinking
+ *   LED_IDLE             MCU is is sleep mode         Not used
+ *
+ * Thus if RX is statically on, NuttX has successfully booted and is,
+ * apparently, running normmally.  If TX is flashing at approximately
+ * 2Hz, then a fatal error has been detected and the system has halted.
+ */
 
-#define NPINS (3+8+19+1)
+#define GPIO_LED_RX  (GPIO_OUTPUT | GPIO_CFG_PULLUP | GPIO_OUTPUT_SET | \
+                      GPIO_PORT_PIOC | GPIO_PIN30)
+#define GPIO_LED_TX  (GPIO_OUTPUT | GPIO_CFG_PULLUP | GPIO_OUTPUT_SET | \
+                      GPIO_PORT_PIOA | GPIO_PIN21)
 
 /************************************************************************************
- * Private Data
+ * Public Types
  ************************************************************************************/
-
-static const gpio_pinset_t g_srampins[NPINS] =
-{
-  GPIO_SMC_NCS0, GPIO_SMC_NRD, GPIO_SMC_NWE,
-
-  GPIO_SMC_D0,   GPIO_SMC_D1,  GPIO_SMC_D2,  GPIO_SMC_D3,
-  GPIO_SMC_D4,   GPIO_SMC_D5,  GPIO_SMC_D6,  GPIO_SMC_D7,
-
-  GPIO_SMC_A0,   GPIO_SMC_A1,  GPIO_SMC_A2,  GPIO_SMC_A3,
-  GPIO_SMC_A4,   GPIO_SMC_A5,  GPIO_SMC_A6,  GPIO_SMC_A7,
-  GPIO_SMC_A8,   GPIO_SMC_A9,  GPIO_SMC_A10, GPIO_SMC_A11,
-  GPIO_SMC_A12,  GPIO_SMC_A13, GPIO_SMC_A14, GPIO_SMC_A15,
-  GPIO_SMC_A16,  GPIO_SMC_A17, GPIO_SMC_A18, 
-
-  GPIO_EBI_NLB
-};
 
 /************************************************************************************
- * Private Functions
+ * Public data
  ************************************************************************************/
+
+#ifndef __ASSEMBLY__
 
 /************************************************************************************
  * Public Functions
@@ -90,45 +113,18 @@ static const gpio_pinset_t g_srampins[NPINS] =
  *
  ************************************************************************************/
 
-void sam_sram_initialize(void)
-{
-  int i;
+#ifdef CONFIG_ARCH_EXTSRAM0
+void sam_sram_initialize(void);
+#endif
 
-  /* Configure GPIO pins (leaving SRAM in the disabled state) */
+/************************************************************************************
+ * Name: up_ledinit
+ ************************************************************************************/
 
-  for (i = 0; i < NPINS; i++)
-    {
-      sam_configgpio(g_srampins[i]);
-    }
+#ifdef CONFIG_ARCH_LEDS
+void up_ledinit(void);
+#endif
 
-  /* Enable PMC clock to the SMC */
+#endif /* __ASSEMBLY__ */
+#endif /* __CONFIGS_ARDUINO_DUE_SRC_ARDUNO_DUE_H */
 
-  sam_smc_enableclk();
-
-  /* Configure SMC setup timing */
-
-  putreg32(SMCCS_SETUP_NWESETUP(1) | SMCCS_SETUP_NCSWRSETUP(1) |
-           SMCCS_SETUP_NRDSETUP(1) | SMCCS_SETUP_NCSRDSETUP(1),
-           SAM_SMCCS0_SETUP);
-
-  /* Configure the SMC pulse timing */
-
-  putreg32(SMCCS_PULSE_NWEPULSE(6) | SMCCS_PULSE_NCSWRPULSE(6) |
-           SMCCS_PULSE_NRDPULSE(6) | SMCCS_PULSE_NCSRDPULSE(6),
-           SAM_SMCCS0_PULSE);
-
-  /* Configure the SMC cycle timing */
-
-  putreg32(SMCCS_CYCLE_NWECYCLE(7) | SMCCS_CYCLE_NRDCYCLE(7),
-           SAM_SMCCS0_CYCLE);
-
-  /* Configure the SMC mode */
-
-  putreg32(SMCCS_MODE_READMODE | SMCCS_MODE_WRITEMODE, SAM_SMCCS0_MODE);
-
-  /* Enable SRAM access (active low) */
-
-  sam_gpiowrite(GPIO_EBI_NLB, false);
-}
-
-#endif /* CONFIG_ARCH_EXTSRAM0 */

@@ -1,5 +1,5 @@
 /************************************************************************************
- * configs/sam4s-xplained/src/sam_sram.c
+ * configs/arduino-due/src/sam_boot.c
  *
  *   Copyright (C) 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
@@ -41,38 +41,11 @@
 
 #include <debug.h>
 
-#include "up_arch.h"
-#include "sam4s_periphclks.h"
-#include "chip/sam3u_smc.h"
-#include "sam4s-xplained.h"
-
-#ifdef CONFIG_ARCH_EXTSRAM0
+#include "arduino-due.h"
 
 /************************************************************************************
- * Pre-processor Definitions
+ * Definitions
  ************************************************************************************/
-
-#define NPINS (3+8+19+1)
-
-/************************************************************************************
- * Private Data
- ************************************************************************************/
-
-static const gpio_pinset_t g_srampins[NPINS] =
-{
-  GPIO_SMC_NCS0, GPIO_SMC_NRD, GPIO_SMC_NWE,
-
-  GPIO_SMC_D0,   GPIO_SMC_D1,  GPIO_SMC_D2,  GPIO_SMC_D3,
-  GPIO_SMC_D4,   GPIO_SMC_D5,  GPIO_SMC_D6,  GPIO_SMC_D7,
-
-  GPIO_SMC_A0,   GPIO_SMC_A1,  GPIO_SMC_A2,  GPIO_SMC_A3,
-  GPIO_SMC_A4,   GPIO_SMC_A5,  GPIO_SMC_A6,  GPIO_SMC_A7,
-  GPIO_SMC_A8,   GPIO_SMC_A9,  GPIO_SMC_A10, GPIO_SMC_A11,
-  GPIO_SMC_A12,  GPIO_SMC_A13, GPIO_SMC_A14, GPIO_SMC_A15,
-  GPIO_SMC_A16,  GPIO_SMC_A17, GPIO_SMC_A18, 
-
-  GPIO_EBI_NLB
-};
 
 /************************************************************************************
  * Private Functions
@@ -83,52 +56,20 @@ static const gpio_pinset_t g_srampins[NPINS] =
  ************************************************************************************/
 
 /************************************************************************************
- * Name: sam_sram_initialize
+ * Name: sam_boardinitialize
  *
  * Description:
- *   Configure and enable SRAM on board the SAM4S Xplained
+ *   All SAM3X architectures must provide the following entry point.  This entry point
+ *   is called early in the intitialization -- after all memory has been configured
+ *   and mapped but before any devices have been initialized.
  *
  ************************************************************************************/
 
-void sam_sram_initialize(void)
+void sam_boardinitialize(void)
 {
-  int i;
+#ifdef CONFIG_ARCH_LEDS
+  /* Configure on-board LEDs if LED support has been selected. */
 
-  /* Configure GPIO pins (leaving SRAM in the disabled state) */
-
-  for (i = 0; i < NPINS; i++)
-    {
-      sam_configgpio(g_srampins[i]);
-    }
-
-  /* Enable PMC clock to the SMC */
-
-  sam_smc_enableclk();
-
-  /* Configure SMC setup timing */
-
-  putreg32(SMCCS_SETUP_NWESETUP(1) | SMCCS_SETUP_NCSWRSETUP(1) |
-           SMCCS_SETUP_NRDSETUP(1) | SMCCS_SETUP_NCSRDSETUP(1),
-           SAM_SMCCS0_SETUP);
-
-  /* Configure the SMC pulse timing */
-
-  putreg32(SMCCS_PULSE_NWEPULSE(6) | SMCCS_PULSE_NCSWRPULSE(6) |
-           SMCCS_PULSE_NRDPULSE(6) | SMCCS_PULSE_NCSRDPULSE(6),
-           SAM_SMCCS0_PULSE);
-
-  /* Configure the SMC cycle timing */
-
-  putreg32(SMCCS_CYCLE_NWECYCLE(7) | SMCCS_CYCLE_NRDCYCLE(7),
-           SAM_SMCCS0_CYCLE);
-
-  /* Configure the SMC mode */
-
-  putreg32(SMCCS_MODE_READMODE | SMCCS_MODE_WRITEMODE, SAM_SMCCS0_MODE);
-
-  /* Enable SRAM access (active low) */
-
-  sam_gpiowrite(GPIO_EBI_NLB, false);
+  up_ledinit();
+#endif
 }
-
-#endif /* CONFIG_ARCH_EXTSRAM0 */
