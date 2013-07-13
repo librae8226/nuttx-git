@@ -164,13 +164,13 @@ config ARCH_BOARD_HYMINI_STM32V
 		STM32F103VCT6 chip.
 
 config ARCH_BOARD_LEACH_STM32
-	bool "leach-stm32 (mini) board"
+	bool "stm32-leach (mini) board"
 	depends on ARCH_CHIP_STM32F103C8
 	select ARCH_HAVE_LEDS
 	select ARCH_HAVE_BUTTONS
 	select ARCH_HAVE_IRQBUTTONS
 	---help---
-		A configuration for the leach-stm32 board.  This board is based on the
+		A configuration for the stm32-leach board.  This board is based on the
 		STM32F103CBT6 chip.
 
 config ARCH_BOARD_LINCOLN60
@@ -777,7 +777,7 @@ config ARCH_BOARD
 	default "freedom-kl25z"       if ARCH_BOARD_FREEDOM_KL25Z
 	default "hymini-stm32v"       if ARCH_BOARD_HYMINI_STM32V
 	default "kwikstik-k40"        if ARCH_BOARD_KWIKSTIK_K40
-	default "leach-stm32"         if ARCH_BOARD_LEACH_STM32
+	default "stm32-leach"         if ARCH_BOARD_LEACH_STM32
 	default "lincoln60"           if ARCH_BOARD_LINCOLN60
 	default "lm3s6432-s2e"        if ARCH_BOARD_LM3S6432S2E
 	default "lm3s6965-ek"         if ARCH_BOARD_LM3S6965EK

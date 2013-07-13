@@ -1,5 +1,5 @@
 #!/bin/bash
-# configs/leach-stm32/usbnsh/setenv.sh
+# configs/stm32-leach/usbnsh/setenv.sh
 #
 #   Copyright (C) 2011 Gregory Nutt. All rights reserved.
 #   Author: Gregory Nutt <gnutt@nuttx.org>

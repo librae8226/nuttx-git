@@ -1,6 +1,6 @@
 /************************************************************************************
- * configs/leach-stm32/src/leach-stm32-internal.h
- * arch/arm/src/board/leach-stm32-internal.h
+ * configs/stm32-leach/src/up_boot.c
+ * arch/arm/src/board/up_boot.c
  *
  *   Copyright (C) 2013 Librae. All rights reserved.
  *   Modified by: Librae <librae8226@gmail.com>
@@ -38,105 +38,63 @@
  *
  ************************************************************************************/
 
-#ifndef __CONFIGS_HYMINI_STM32V_INTERNAL_H
-#define __CONFIGS_HYMINI_STM32V_INTERNAL_H
-
 /************************************************************************************
  * Included Files
  ************************************************************************************/
 
 #include <nuttx/config.h>
-#include <nuttx/compiler.h>
-#include <stdint.h>
+#include <nuttx/spi/spi.h>
+#include <debug.h>
+
+#include <arch/board/board.h>
+
+#include "up_arch.h"
+#include "stm32-leach-internal.h"
 
 /************************************************************************************
  * Definitions
  ************************************************************************************/
 
-/* How many SPI modules does this chip support? The LM3S6918 supports 2 SPI
- * modules (others may support more -- in such case, the following must be
- * expanded).
- */
-
-#if STM32_NSPI < 1
-#  undef CONFIG_STM32_SPI1
-#  undef CONFIG_STM32_SPI2
-#elif STM32_NSPI < 2
-#  undef CONFIG_STM32_SPI2
-#endif
-
-/* GPIOs **************************************************************/
-/* LEDs */
-
-#define GPIO_LED1       (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
-                         GPIO_OUTPUT_CLEAR|GPIO_PORTB|GPIO_PIN0)
-#define GPIO_LED2       (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
-                         GPIO_OUTPUT_CLEAR|GPIO_PORTB|GPIO_PIN1)
-
-/* BUTTONS -- NOTE that some have EXTI interrupts configured */
-
-#define MIN_IRQBUTTON   BUTTON_KEYA
-#define MAX_IRQBUTTON   BUTTON_KEYB
-#define NUM_IRQBUTTONS  NUM_BUTTONS
-
-/* Button A is externally pulled up */
-#define GPIO_BTN_KEYA (GPIO_INPUT|GPIO_CNF_INFLOAT|GPIO_MODE_INPUT|\
-                         GPIO_PORTC|GPIO_PIN13)
-
-/* Button B is externally pulled dw */
-#define GPIO_BTN_KEYB (GPIO_INPUT|GPIO_CNF_INFLOAT|GPIO_MODE_INPUT|\
-                         GPIO_PORTB|GPIO_PIN2)
-
-/* SPI touch screen (ADS7843) chip select:  PA.4 */
-
-#define GPIO_TS_CS   (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
-                         GPIO_OUTPUT_SET|GPIO_PORTA|GPIO_PIN4)
-
-/* Touch screen (ADS7843) IRQ pin:  PB.6 */
-#define GPIO_TS_IRQ  (GPIO_INPUT|GPIO_CNF_INPULLUP|GPIO_MODE_INPUT|\
-                         GPIO_PORTB|GPIO_PIN6)
-
-/* USB Soft Connect Pullup: PB.7 */
-#define GPIO_USB_PULLUP (GPIO_OUTPUT|GPIO_CNF_OUTOD|GPIO_MODE_50MHz|\
-                         GPIO_OUTPUT_SET|GPIO_PORTB|GPIO_PIN9)
-
-/* SD card detect pin: PD.3 */
-#define GPIO_SD_CD (GPIO_INPUT|GPIO_CNF_INFLOAT|GPIO_MODE_INPUT|\
-                         GPIO_PORTD|GPIO_PIN3)
-
 /************************************************************************************
- * Public Types
+ * Private Data
  ************************************************************************************/
-
-/************************************************************************************
- * Public data
- ************************************************************************************/
-
-#ifndef __ASSEMBLY__
 
 /************************************************************************************
  * Public Functions
  ************************************************************************************/
 
 /************************************************************************************
- * Name: stm32_spiinitialize
+ * Name: stm32_boardinitialize
  *
  * Description:
- *   Called to configure SPI chip select GPIO pins for the Hy-Mini STM32v board.
+ *   All STM32 architectures must provide the following entry point.  This entry point
+ *   is called early in the initialization -- after all memory has been configured
+ *   and mapped but before any devices have been initialized.
  *
  ************************************************************************************/
 
-extern void weak_function stm32_spiinitialize(void);
+void stm32_boardinitialize(void)
+{
+	/* Configure on-board LEDs if LED support has been selected. */
 
-/************************************************************************************
- * Name: stm32_usbinitialize
- *
- * Description:
- *   Called to setup USB-related GPIO pins for the Hy-Mini STM32v board.
- *
- ************************************************************************************/
+#ifdef CONFIG_ARCH_LEDS
+	up_ledinit();
+#endif
 
-extern void weak_function stm32_usbinitialize(void);
+	/* Configure SPI chip selects if 1) SPI is not disabled, and 2) the weak function
+	 * stm32_spiinitialize() has been brought into the link.
+	 */
 
-#endif /* __ASSEMBLY__ */
-#endif /* __CONFIGS_HYMINI_STM32V_INTERNAL_H */
+#if defined(CONFIG_STM32_SPI1) || defined(CONFIG_STM32_SPI2)
+	stm32_spiinitialize();
+#endif
+
+	/* Initialize USB is 1) USBDEV is selected, 2) the USB controller is not
+	 * disabled, and 3) the weak function stm32_usbinitialize() has been brought
+	 * into the build.
+	 */
+
+#if defined(CONFIG_USBDEV) && defined(CONFIG_STM32_USB)
+	stm32_usbinitialize();
+#endif
+}

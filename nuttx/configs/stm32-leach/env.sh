@@ -1,5 +1,5 @@
 #!/bin/bash
 
 cd tools
-./configure.sh leach-stm32/usbnsh
+./configure.sh stm32-leach/usbnsh
 cd - > /dev/null

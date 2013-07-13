@@ -1,5 +1,5 @@
 /****************************************************************************
- * configs/leach-stm32/src/up_buttons.c
+ * configs/stm32-leach/src/up_buttons.c
  *
  *   Copyright (C) 2013 Librae. All rights reserved.
  *   Modified by: Librae <librae8226@gmail.com>
@@ -45,7 +45,7 @@
 #include <stdint.h>
 
 #include <arch/board/board.h>
-#include "leach-stm32-internal.h"
+#include "stm32-leach-internal.h"
 
 #ifdef CONFIG_ARCH_BUTTONS
 

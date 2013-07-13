@@ -1,5 +1,5 @@
 /************************************************************************************
- * configs/leach-stm32/src/up_watchdog.c
+ * configs/stm32-leach/src/up_watchdog.c
  * arch/arm/src/board/up_watchdog.c
  *
  *   Copyright (C) 2013 Librae. All rights reserved.

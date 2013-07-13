@@ -1,5 +1,5 @@
 ############################################################################
-# configs/leach-stm32/src/Makefile
+# configs/stm32-leach/src/Makefile
 #
 #   Copyright (C) 2013 Librae. All rights reserved.
 #   Modified by: Librae <librae8226@gmail.com>

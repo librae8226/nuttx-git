@@ -1,12 +1,11 @@
 /****************************************************************************
- * configs/leach-stm32/scripts/ld.script
+ * configs/stm32-leach/scripts/ld.script.dfu
  *
  *   Copyright (C) 2013 Librae. All rights reserved.
  *   Modified by: Librae <librae8226@gmail.com>
  *
  *   Copyright (C) 2011-2012 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
- *           Laurent Latil <laurent@latil.nom.fr>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,20 +37,20 @@
  ****************************************************************************/
 
 /* The STM32F103xB has 128Kb of FLASH beginning at address 0x0800:0000 and
- * 20Kb of SRAM beginning at address 0x2000:0000.  When booting from FLASH,
- * FLASH memory is aliased to address 0x0000:0000 where the code expects to
- * begin execution by jumping to the entry point in the 0x0800:0000 address
- * range.
+ * 20Kb of SRAM beginning at address 0x2000:0000.  Here we assume that the
+ * stm32-leach's DFU bootloader is being used.  In that case, the correct
+ * load .text load address is 0x08005000 (leaving 108Kb).
  */
 
 MEMORY
 {
-    flash (rx) : ORIGIN = 0x08000000, LENGTH = 128K
+    flash (rx) : ORIGIN = 0x08005000, LENGTH = 108K
     sram (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 
 OUTPUT_ARCH(arm)
 ENTRY(_stext)
+
 SECTIONS
 {
 	.text : {

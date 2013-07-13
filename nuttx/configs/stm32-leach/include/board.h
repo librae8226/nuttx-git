@@ -1,5 +1,5 @@
 /************************************************************************************
- * configs/leach-stm32/include/board.h
+ * configs/stm32-leach/include/board.h
  * include/arch/board/board.h
  *
  *   Copyright (C) 2013 Librae. All rights reserved.

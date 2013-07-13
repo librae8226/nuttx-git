@@ -1,5 +1,5 @@
 ############################################################################
-# configs/leach-stm32/usbnsh/Make.defs
+# configs/stm32-leach/usbnsh/Make.defs
 #
 #   Copyright (C) 2013 Librae. All rights reserved.
 #   Modified by: Librae <librae8226@gmail.com>

@@ -2,14 +2,14 @@ README
 ======
 
 This README discusses issues unique to NuttX configurations for the
-leach-stm32 development board.
+stm32-leach development board.
 
 Contents
 ========
 
   - Development Environment
   - DFU
-  - leach-stm32 specific Configuration Options
+  - stm32-leach specific Configuration Options
 
 Development Environment
 =======================
@@ -47,7 +47,7 @@ dFU
      file (nuttx.dfu)... see below for details.
   2. Connect the leach board to your computer using a USB
      cable.
-  3. Start the DFU loader on the leach-stm32 board.  You do this by
+  3. Start the DFU loader on the stm32-leach board.  You do this by
      resetting the board while holding the "Key" button.  Windows should
      recognize that the DFU loader has been installed.
   3. Run the DFU SE program to load nuttx.dfu into FLASH.

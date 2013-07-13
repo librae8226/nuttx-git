@@ -1,12 +1,8 @@
 /************************************************************************************
- * configs/leach-stm32/src/up_usbdev.c
- * arch/arm/src/board/up_boot.c
+ * configs/stm32-leach/src/stm32-leach-internal.h
  *
- *   Copyright (C) 2013 Librae. All rights reserved.
- *   Modified by: Librae <librae8226@gmail.com>
- *
- *   Copyright (C) 2009-2011 Gregory Nutt. All rights reserved.
- *   Author: Gregory Nutt <gnutt@nuttx.org>
+ *   Copyright (C) 2013 Gregory Nutt. All rights reserved.
+ *   Author: Laurent Latil <laurent@latil.nom.fr>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,35 +33,67 @@
  *
  ************************************************************************************/
 
+#ifndef __CONFIGS_STM32_LEACH_INTERNAL_H
+#define __CONFIGS_STM32_LEACH_INTERNAL_H
+
 /************************************************************************************
  * Included Files
  ************************************************************************************/
 
 #include <nuttx/config.h>
-
-#include <sys/types.h>
+#include <nuttx/compiler.h>
 #include <stdint.h>
-#include <stdbool.h>
-#include <debug.h>
-
-#include <nuttx/usb/usbdev.h>
-#include <nuttx/usb/usbdev_trace.h>
-
-#include "up_arch.h"
-#include "stm32.h"
-#include "leach-stm32-internal.h"
 
 /************************************************************************************
  * Definitions
  ************************************************************************************/
 
+/* How many SPI modules does this chip support? The LM3S6918 supports 2 SPI
+ * modules (others may support more -- in such case, the following must be
+ * expanded).
+ */
+
+#if STM32_NSPI < 1
+#  undef CONFIG_STM32_SPI1
+#  undef CONFIG_STM32_SPI2
+#elif STM32_NSPI < 2
+#  undef CONFIG_STM32_SPI2
+#endif
+
+/* GPIOs **************************************************************/
+/* LEDs */
+
+#define GPIO_LED        (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
+                         GPIO_OUTPUT_CLEAR|GPIO_PORTB|GPIO_PIN1)
+
+/* USB Soft Connect Pullup: PB.9 */
+
+#define GPIO_USB_PULLUP (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
+                         GPIO_OUTPUT_SET|GPIO_PORTB|GPIO_PIN9)
+
 /************************************************************************************
- * Private Functions
+ * Public Types
  ************************************************************************************/
+
+/************************************************************************************
+ * Public data
+ ************************************************************************************/
+
+#ifndef __ASSEMBLY__
 
 /************************************************************************************
  * Public Functions
  ************************************************************************************/
+
+/************************************************************************************
+ * Name: stm32_spiinitialize
+ *
+ * Description:
+ *   Called to configure SPI chip select GPIO pins for the Hy-Mini STM32v board.
+ *
+ ************************************************************************************/
+
+extern void stm32_spiinitialize(void);
 
 /************************************************************************************
  * Name: stm32_usbinitialize
@@ -75,46 +103,18 @@
  *
  ************************************************************************************/
 
-void stm32_usbinitialize(void)
-{
-	ulldbg("called\n");
-
-	/* USB Soft Connect Pullup */
-	stm32_configgpio(GPIO_USB_PULLUP);
-}
+extern void stm32_usbinitialize(void);
 
 /************************************************************************************
- * Name:  stm32_usbpullup
+ * Name: up_wlinitialize
  *
  * Description:
- *   If USB is supported and the board supports a pullup via GPIO (for USB software
- *   connect and disconnect), then the board software must provide stm32_pullup.
- *   See include/nuttx/usb/usbdev.h for additional description of this method.
- *   Alternatively, if no pull-up GPIO the following EXTERN can be redefined to be
- *   NULL.
+ *   Called to configure wireless module (nRF24L01).
  *
  ************************************************************************************/
 
-int stm32_usbpullup(FAR struct usbdev_s *dev, bool enable)
-{
-	usbtrace(TRACE_DEVPULLUP, (uint16_t)enable);
-	stm32_gpiowrite(GPIO_USB_PULLUP, !enable);
-	return OK;
-}
+extern void up_wlinitialize(void);
 
-/************************************************************************************
- * Name:  stm32_usbsuspend
- *
- * Description:
- *   Board logic must provide the stm32_usbsuspend logic if the USBDEV driver is
- *   used.  This function is called whenever the USB enters or leaves suspend mode.
- *   This is an opportunity for the board logic to shutdown clocks, power, etc.
- *   while the USB is suspended.
- *
- ************************************************************************************/
-
-void stm32_usbsuspend(FAR struct usbdev_s *dev, bool resume)
-{
-	ulldbg("resume: %d\n", resume);
-}
+#endif /* __ASSEMBLY__ */
+#endif /* __CONFIGS_HYMINI_STM32V_INTERNAL_H */
 
