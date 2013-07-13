@@ -1,5 +1,5 @@
 ############################################################################
-# configs/leach-stm32/usbserial/Make.defs
+# configs/leach-stm32/usbnsh/Make.defs
 #
 #   Copyright (C) 2013 Librae. All rights reserved.
 #   Modified by: Librae <librae8226@gmail.com>
@@ -76,7 +76,7 @@ ARCHCCVERSION = ${shell $(CC) -v 2>&1 | sed -n '/^gcc version/p' | sed -e 's/^gc
 ARCHCCMAJOR = ${shell echo $(ARCHCCVERSION) | cut -d'.' -f1}
 
 ifeq ($(CONFIG_DEBUG_SYMBOLS),y)
-  ARCHOPTIMIZATION = -g
+  ARCHOPTIMIZATION = -g -Os
 else
   ARCHOPTIMIZATION = $(MAXOPTIMIZATION) -fno-strict-aliasing -fno-strength-reduce -fomit-frame-pointer
 endif
