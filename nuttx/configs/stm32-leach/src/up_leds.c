@@ -107,7 +107,7 @@ void up_ledinit(void)
 
 void up_ledon(int led)
 {
-	ledvdbg("up_ledon(%d)\n",led);
+	ledvdbg("up_ledon(%d)\n", led);
 	switch (led)
 	{
 	case LED_STARTED:
@@ -128,8 +128,10 @@ void up_ledon(int led)
 
 void up_ledoff(int led)
 {
+	ledvdbg("up_ledoff(%d)\n", led);
 	switch (led)
 	{
+	case LED_STARTED:
 	case LED_PANIC:
 		/* For panic state, the LED is blinking */
 		set_led(false);

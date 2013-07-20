@@ -1,1 +1,1 @@
-This directory contains header files unique to the HY-MiniSTM32V development board.
+This directory contains header files unique to the stm32-leach development board.

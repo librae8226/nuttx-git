@@ -5,13 +5,9 @@
  *   Copyright (C) 2013 Librae. All rights reserved.
  *   Modified by: Librae <librae8226@gmail.com>
  *
- *   Copyright (C) 2011 Laurent Latil. All rights reserved.
- *   Author: Laurent Latil <laurent@latil.nom.fr>
- *
- * Derives, in part, from configs/stm3210e-eval/include/board.h
- *
- *   Copyright (C) 2009 Gregory Nutt. All rights reserved.
- *   Author: Gregory Nutt <gnutt@nuttx.org>
+ *   Copyright (C) 2013 Gregory Nutt. All rights reserved.
+ *   Authors: Gregory Nutt <gnutt@nuttx.org>
+ *            Laurent Latil <laurent@latil.nom.fr>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -115,20 +111,20 @@
 #define STM32_CFGR_USBPRE       0
 
 /* Timer Frequencies, if APBx is set to 1, frequency is same to APBx
- * otherwise frequency is 2xAPBx. 
+ * otherwise frequency is 2xAPBx.
  * Note: TIM1,8 are on APB2, others on APB1 */
 
 #define STM32_TIM18_FREQUENCY   STM32_HCLK_FREQUENCY
 #define STM32_TIM27_FREQUENCY   STM32_HCLK_FREQUENCY
 
-/* SDIO dividers.  Note that slower clocking is required when DMA is disabled 
+/* SDIO dividers.  Note that slower clocking is required when DMA is disabled
  * in order to avoid RX overrun/TX underrun errors due to delayed responses
  * to service FIFOs in interrupt driven mode.  These values have not been
  * tuned!!!
  *
  * HCLK=72MHz, SDIOCLK=72MHz, SDIO_CK=HCLK/(178+2)=400 KHz
  */
-  
+
 #define SDIO_INIT_CLKDIV        (178 << SDIO_CLKCR_CLKDIV_SHIFT)
 
 /* DMA ON:  HCLK=72 MHz, SDIOCLK=72MHz, SDIO_CK=HCLK/(2+2)=18 MHz
@@ -136,9 +132,9 @@
  */
 
 #ifdef CONFIG_SDIO_DMA
-#  define SDIO_MMCXFR_CLKDIV    (2 << SDIO_CLKCR_CLKDIV_SHIFT) 
+#  define SDIO_MMCXFR_CLKDIV    (2 << SDIO_CLKCR_CLKDIV_SHIFT)
 #else
-#  define SDIO_MMCXFR_CLKDIV    (3 << SDIO_CLKCR_CLKDIV_SHIFT) 
+#  define SDIO_MMCXFR_CLKDIV    (3 << SDIO_CLKCR_CLKDIV_SHIFT)
 #endif
 
 /* DMA ON:  HCLK=72 MHz, SDIOCLK=72MHz, SDIO_CK=HCLK/(1+2)=24 MHz
@@ -153,7 +149,7 @@
 
 /* LED definitions ******************************************************************/
 
-/* The board has 2 LEDs that we will encode as: */
+/* The board has only one controllable LED */
 #define LED_STARTED       0  /* No LEDs */
 #define LED_HEAPALLOCATE  1  /* LED1 on */
 #define LED_IRQSENABLED   2  /* LED2 on */
@@ -163,19 +159,15 @@
 #define LED_ASSERTION     6  /* LED1 + LED2 */
 #define LED_PANIC         7  /* LED1 / LED2 blinking */
 
-/* The board supports two user buttons
+/* The board supports one user buttons
  *
- * KeyA            -- Connected to PC.13
- * KeyB            -- Connected to PB.2
+ * KeyA            -- Connected to PB.8
  */
 
 #define BUTTON_KEYA      0
-#define BUTTON_KEYB      1
-
-#define NUM_BUTTONS      2
+#define NUM_BUTTONS      1
 
 #define BUTTON_KEYA_BIT  (1 << BUTTON_KEYA)
-#define BUTTON_KEYB_BIT  (1 << BUTTON_KEYB)
 
 
 /************************************************************************************
