@@ -34,6 +34,10 @@
 #
 ############################################################################
 
+ifeq ($(CONFIG_SYSTEM_DEBUG),y)
+CONFIGURED_APPS += system/debug
+endif
+
 ifeq ($(CONFIG_SYSTEM_FREE),y)
 CONFIGURED_APPS += system/free
 endif
