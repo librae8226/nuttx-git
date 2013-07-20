@@ -1,5 +1,5 @@
 /************************************************************************************
- * configs/sam3uek_eval/src/sam4s-xplained.h
+ * configs/sam4s-xplained/src/sam4s-xplained.h
  *
  *   Copyright (C) 2009-2011, 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>

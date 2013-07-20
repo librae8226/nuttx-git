@@ -5113,4 +5113,31 @@
 	  (2013-7-4).
 	* arch/arm/src/sam34/sam3u_gpio.c:  sam_configgpio() must protect
 	  against re-entrancy (2013-7-5).
-
+	* libc/misc/lib_crc16.c and include/crc16.h:  Add CRC16 support
+	  (2013-7-7).
+	* arch/arm/src/stm32/stm32_otgfsdev.c:  SourceForge bug #16:  Fix
+	  to the endpoint allocation logic.  Apparently the same endpoint can
+	  be allocated as both an IN or an OUT endpoint.  The existing
+	  implementation only supported one allocation, either IN or OUT.  This
+	  resulted in failures to allocate enpoints when used with the CDC/ACM +
+	  MSC composite driver (From Chia Cheng Tsao, 2013-7-8).
+	* arch/arm/src/stm32/stm32_sdio.c:  SourceForge bug #17:  Add
+	  support for the data block end (DBCKEND) interrupt to terminate
+	  transfers (From Chia Cheng Tsao, 2013-7-8)
+	* drivers/rwbuffer.c: SourceForge bug #17: Correct typos that can cause
+	  failures in some configurations (From Chia Cheng Tsao, 2013-7-8).
+	* include/nuttx/usb/usbdev.h: Fix some typos that cause compiler errors
+	  when CONFIG_USBDEV_DMA and CONFIG_USBDEV_DMAMEMORY are selected (From
+	  Chia Cheng Tsao, 2013-7-12).
+	* nuttx/configs/olimex-lpc1766stk/zmodem:  Add a new configuration to
+	  test the Zmodem sz and rz commands (which don't actually exist yet,
+	  but will). (2013-7-12).
+	* arch/arm/include/armv7-a and src/armv7-a:  Beginning to add support
+	  for the ARMMv7-A, the Cortex-A5 in particular.  The initial checkin
+	  is only fragmentary:  A few header files and some copied ARM9
+	  assembly files.  More to come (2013-7-18).
+	* arch/arm/include/sama5, arch/arm/src/sama5, and configs/sama5d3x-e:
+	  Add a directory framework to support the Atmel AT91SAMA5D3 family and
+	  the SAMA5D3x-EK board(s) in particular.  There is very little here on
+	  the first check-in, this structure is being used now primarily to
+	  create the Cortex-A5 support (2013-7-19).

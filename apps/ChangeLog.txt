@@ -596,6 +596,22 @@
 	  for a long time (2013-6-23).
 	* apps/examplex/nxhello:  Correct default colors when in Y1 code mode.
 	  (2013-6-24).
-	* system/Make.defs and Kconfig:  The RAM test was not correctly built
+	* apps/system/Make.defs and Kconfig:  The RAM test was not correctly built
 	  into the configuration and build system (2013-6-26).
-
+	* apps/examples/composite/composite_main.c:  SourceForge But Ticket #19.
+	  Change to prevent some false alarm debug assertions (From Chia Cheng
+	  Tao, 2013-7-9).
+	* apps/system/zmodem:  Add configuration support and a build framework
+	  for the Zmodem sz and rz command (which exist but have not yet been
+	  checked in) (2013-7-12).
+	* apps/system/zmodem:  The 'sz' command is now complete and seems
+	  functional (given on light testing).  The rz command logic exists but
+	  is still untested and not yet checked in  (2013-7-13).
+	* apps/system/zmodem:  The 'rz' command is now complete and functional
+	  under certain conditaions.  There are, however, some data overrun
+	  issues that I am still uncertain how should be handled (2012-7-15).
+	* apps/system/zmodem/Makefile.host and host/: The Zmodem utilities
+	  can now be built to execute on a Linux host.
+	* apps/nshlib/nsh_fscmds.c:  Add a 'cmp' command that can be used to
+	  compare two files for equivalence.  Returns an indication if the files
+	  differ.  Contributed by Andrew Tridgell (via Lorenz Meier) (2013-7-18).

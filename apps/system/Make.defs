@@ -81,3 +81,7 @@ endif
 ifeq ($(CONFIG_SYSTEM_USBMONITOR),y)
 CONFIGURED_APPS += system/usbmonitor
 endif
+
+ifeq ($(CONFIG_SYSTEM_ZMODEM),y)
+CONFIGURED_APPS += system/zmodem
+endif
