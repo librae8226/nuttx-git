@@ -61,16 +61,18 @@
 #endif
 
 /* GPIOs **************************************************************/
-/* LEDs */
 
+#ifdef CONFIG_LEACH_MINI
 #define GPIO_LED        (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
                          GPIO_OUTPUT_CLEAR|GPIO_PORTB|GPIO_PIN1)
-
-/* USB Soft Connect Pullup: PB.9 */
-
 #define GPIO_USB_PULLUP (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
                          GPIO_OUTPUT_SET|GPIO_PORTB|GPIO_PIN9)
-
+#else
+#define GPIO_LED        (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
+                         GPIO_OUTPUT_CLEAR|GPIO_PORTA|GPIO_PIN5)
+#define GPIO_USB_PULLUP (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
+                         GPIO_OUTPUT_SET|GPIO_PORTC|GPIO_PIN12)
+#endif
 /************************************************************************************
  * Public Types
  ************************************************************************************/
