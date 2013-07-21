@@ -3,5 +3,5 @@
 # see misc/tools/kconfig-language.txt.
 #
 
-if ARCH_BOARD_LEACH_STM32
+if ARCH_BOARD_STM32_LEACH
 endif
