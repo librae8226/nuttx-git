@@ -1,5 +1,5 @@
 /****************************************************************************
- *  arch/arm/src/armv7-a/arm_initialstate.c
+ * arch/arm/src/sama5/sam_timerisr.c
  *
  *   Copyright (C) 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
@@ -40,107 +40,114 @@
 #include <nuttx/config.h>
 
 #include <stdint.h>
-#include <string.h>
+#include <time.h>
 
 #include <nuttx/arch.h>
 
-#include "arm.h"
-#include "up_internal.h"
+#include <arch/irq.h>
+#include <arch/board/board.h>
+
 #include "up_arch.h"
+#include "chip/sam_pit.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Definitions
+ ****************************************************************************/
+/* The PIT counter runs at a rate of the main clock (MCK) divided by 16 */
+
+#define PIT_CLOCK (BOARD_MCK_FREQUENCY >> 4)
+
+/* The desired timer interrupt frequency is provided by the definition
+ * CLK_TCK (see include/time.h).  CLK_TCK defines the desired number of
+ * system clock ticks per second.  That value is a user configurable setting
+ * that defaults to 100 (100 ticks per second = 10 MS interval).
+ *
+ * The PIT counts from zero and up until it reaches the overflow value set
+ * in the field PIV of the Mode Register (PIT MR).  So an PIV value of n
+ * corresponds a duration of n * PIT_CLOCK
+ */
+
+#define PIT_PIV ((PIT_CLOCK + (CLK_TCK >> 1)) / CLK_TCK)
+
+/* The size of the reload field is 20 bits.  Verify that the reload value
+ * will fit in the reload register.
+ */
+
+#if PIT_PIV > PIT_MR_PIV_MASK
+#  error PIT_PIV exceeds the maximum value
+#endif
+
+/****************************************************************************
+ * Private Types
  ****************************************************************************/
 
 /****************************************************************************
- * Private Data
+ * Private Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Private Functions
+ * Global Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Public Functions
- ****************************************************************************/
-
-/****************************************************************************
- * Name: up_initial_state
+ * Function:  up_timerisr
  *
  * Description:
- *   A new thread is being started and a new TCB
- *   has been created. This function is called to initialize
- *   the processor specific portions of the new TCB.
- *
- *   This function must setup the intial architecture registers
- *   and/or  stack so that execution will begin at tcb->start
- *   on the next context switch.
+ *   The timer ISR will perform a variety of services for various portions
+ *   of the systems.
  *
  ****************************************************************************/
 
-void up_initial_state(struct tcb_s *tcb)
+int up_timerisr(int irq, uint32_t *regs)
 {
-  struct xcptcontext *xcp = &tcb->xcp;
-  uint32_t cpsr;
+   /* "When CPIV and PICNT values are obtained by reading the Periodic
+    *  Interval Value Register (PIT_PIVR), the overflow counter (PICNT) is
+    *  reset and the PITS is cleared, thus acknowledging the interrupt. The
+    *  value of PICNT gives the number of periodic intervals elapsed since the
+    *  last read of PIT_PIVR.
+    */
 
-  /* Initialize the initial exception register context structure */
+   uint32_t picnt = getreg32(SAM_PIT_PIVR) >> PIT_PICNT_SHIFT;
 
-  memset(xcp, 0, sizeof(struct xcptcontext));
+   /* Process timer interrupt (multiple times if we missed an interrupt) */
 
-  /* Save the initial stack pointer */
+   while (picnt-- > 0)
+     {
+       sched_process_timer();
+     }
 
-  xcp->regs[REG_SP]      = (uint32_t)tcb->adj_stack_ptr;
-
-  /* Save the task entry point */
-
-  xcp->regs[REG_PC]      = (uint32_t)tcb->start;
-
-  /* If this task is running PIC, then set the PIC base register to the
-   * address of the allocated D-Space region.
-   */
-
-#ifdef CONFIG_PIC
-  if (tcb->dspace != NULL)
-    {
-      /* Set the PIC base register (probably R10) to the address of the
-       * alloacated D-Space region.
-       */
-
-      xcp->regs[REG_PIC] = (uint32_t)tcb->dspace->region;
-    }
-#endif
-
-  /* Set supervisor- or user-mode, depending on how NuttX is configured and
-   * what kind of thread is being started.  Disable FIQs in any event
-   */
-
-#ifdef CONFIG_NUTTX_KERNEL
-  if ((tcb->flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_KERNEL)
-    {
-      /* It is a kernel thread.. set supervisor mode */
-
-      cpsr               = PSR_MODE_SVC | PSR_F_BIT;
-    }
-  else
-    {
-      /* It is a normal task or a pthread.  Set user mode */
-
-      cpsr               = PSR_MODE_USR | PSR_F_BIT;
-    }
-#else
-  /* If the kernel build is not selected, then all threads run in
-   * supervisor-mode.
-   */
-
-  cpsr                   = PSR_MODE_SVC | PSR_F_BIT;
-#endif
-
-  /* Enable or disable interrupts, based on user configuration */
-
-# ifdef CONFIG_SUPPRESS_INTERRUPTS
-  cpsr                  |= PSR_I_BIT;
-# endif
-
-  xcp->regs[REG_CPSR]    = cpsr;
+   return OK;
 }
 
+/****************************************************************************
+ * Function:  up_timerinit
+ *
+ * Description:
+ *   This function is called during start-up to initialize
+ *   the timer interrupt.
+ *
+ ****************************************************************************/
+
+void up_timerinit(void)
+{
+  uint32_t regval;
+
+  /* Make sure that interrupts from the PIT are disabled */
+
+  up_disable_irq(SAM_IRQ_PIT);
+
+  /* Attach the timer interrupt vector */
+
+  (void)irq_attach(SAM_IRQ_PIT, (xcpt_t)up_timerisr);
+
+  /* Set the PIT overflow value (PIV), enable the PIT, and enable
+   * interrupts from the PIT.
+   */
+
+  regval = PIT_PIV | PIT_MR_PITEN | PIT_MR_PITIEN;
+  putreg32(regval, SAM_PIT_MR);
+
+  /* And enable the timer interrupt */
+
+  up_enable_irq(SAM_IRQ_PIT);
+}

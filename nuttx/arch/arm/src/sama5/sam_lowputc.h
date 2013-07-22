@@ -1,5 +1,5 @@
 /************************************************************************************
- * arch/arm/src/sama5/chip/sam_pinmap.h
+ * arch/arm/src/sama5/sam_lowputc.h
  *
  *   Copyright (C) 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
@@ -33,13 +33,70 @@
  *
  ************************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_SAMA5_CHIP_SAM_PINMAP_H
-#define __ARCH_ARM_SRC_SAMA5_CHIP_SAM_PINMAP_H
+#ifndef __ARCH_ARM_SRC_SAMA5_SAM_LOWPUTC_H
+#define __ARCH_ARM_SRC_SAMA5_SAM_LOWPUTC_H
 
 /************************************************************************************
  * Included Files
  ************************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/compiler.h>
 
-#endif /* __ARCH_ARM_SRC_SAMA5_CHIP_SAM_PINMAP_H */
+#include <sys/types.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#include "up_internal.h"
+#include "chip.h"
+
+/************************************************************************************
+ * Definitions
+ ************************************************************************************/
+
+/************************************************************************************
+ * Public Types
+ ************************************************************************************/
+
+/************************************************************************************
+ * Inline Functions
+ ************************************************************************************/
+
+#ifndef __ASSEMBLY__
+
+/************************************************************************************
+ * Public Data
+ ************************************************************************************/
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/************************************************************************************
+ * Public Function Prototypes
+ ************************************************************************************/
+
+/************************************************************************************
+ * Name: sam_lowsetup
+ *
+ * Description:
+ *   Called at the very beginning of _start.  Performs low level initialization
+ *   including setup of the console UART.  This UART done early so that the serial
+ *   console is available for debugging very early in the boot sequence.
+ *
+ ************************************************************************************/
+
+void sam_lowsetup(void);
+
+#undef EXTERN
+#if defined(__cplusplus)
+}
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_SRC_SAMA5_SAM_LOWPUTC_H */

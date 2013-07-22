@@ -1,5 +1,5 @@
 /************************************************************************************
- * arch/arm/src/sama5/chip/sam_pinmap.h
+ * arch/arm/src/sama5/sam_clockconfig.h
  *
  *   Copyright (C) 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
@@ -33,8 +33,8 @@
  *
  ************************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_SAMA5_CHIP_SAM_PINMAP_H
-#define __ARCH_ARM_SRC_SAMA5_CHIP_SAM_PINMAP_H
+#ifndef __ARCH_ARM_SRC_SAMA5_SAM_CLOCKCONFIG_H
+#define __ARCH_ARM_SRC_SAMA5_SAM_CLOCKCONFIG_H
 
 /************************************************************************************
  * Included Files
@@ -42,4 +42,53 @@
 
 #include <nuttx/config.h>
 
-#endif /* __ARCH_ARM_SRC_SAMA5_CHIP_SAM_PINMAP_H */
+/************************************************************************************
+ * Pre-processor Definitions
+ ************************************************************************************/
+
+/************************************************************************************
+ * Public Types
+ ************************************************************************************/
+
+/************************************************************************************
+ * Inline Functions
+ ************************************************************************************/
+
+#ifndef __ASSEMBLY__
+
+/************************************************************************************
+ * Public Data
+ ************************************************************************************/
+
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
+#else
+#define EXTERN extern
+#endif
+
+/************************************************************************************
+ * Public Function Prototypes
+ ************************************************************************************/
+
+/************************************************************************************
+ * Name: sam_clockconfig
+ *
+ * Description:
+ *   Called to initialize the SAM3/4.  This does whatever setup is needed to put the
+ *   SoC in a usable state.  This includes the initialization of clocking using the
+ *   settings in board.h.
+ *
+ ************************************************************************************/
+
+void sam_clockconfig(void);
+
+#undef EXTERN
+#if defined(__cplusplus)
+}
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_SRC_SAMA5_SAM_CLOCKCONFIG_H */
