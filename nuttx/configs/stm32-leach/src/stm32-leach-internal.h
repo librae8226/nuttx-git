@@ -118,5 +118,5 @@ extern void stm32_usbinitialize(void);
 extern void up_wlinitialize(void);
 
 #endif /* __ASSEMBLY__ */
-#endif /* __CONFIGS_HYMINI_STM32V_INTERNAL_H */
+#endif /* __CONFIGS_STM32_LEACH_INTERNAL_H */
 
