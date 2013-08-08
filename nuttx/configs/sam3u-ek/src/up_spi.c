@@ -89,7 +89,7 @@
  * Name: sam_spiinitialize
  *
  * Description:
- *   Called to configure SPI chip select GPIO pins for the SAM3U10E-EVAL board.
+ *   Called to configure SPI chip select GPIO pins for the SAM3U-EK board.
  *
  ************************************************************************************/
 

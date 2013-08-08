@@ -47,23 +47,184 @@
  ************************************************************************************/
 
 /* Clocking *************************************************************************/
+/* After power-on reset, the sam3u device is running on a 4MHz internal RC.  These
+ * definitions will configure clocking
+ *
+ *   MAINOSC:  Frequency = 12MHz (crysta)
+ *   PLLA: PLL Divider = 1, Multiplier = 66 to generate PLLACK = 792MHz
+ *   Master Clock (MCK): Source = PLLACK/2, Prescalar = 1, MDIV = 3 to generate
+*      MCK      =  132MHz
+ *     CPU clock = 396MHz
+ */
 
-/* Resulting clock frquencies *******************************************************/
+/* Main oscillator register settings.
+ *
+ *   The start up time should be should be:
+ *   Start Up Time = 8 * MOSCXTST / SLCK = 56 Slow Clock Cycles.
+ */
 
-#define BOARD_MCK_FREQUENCY 0 /* FIXME */
+#define BOARD_CKGR_MOR_MOSCXTST    (62 << PMC_CKGR_MOR_MOSCXTST_SHIFT) /* Start-up Time */
+
+/* PLLA configuration.
+ *
+ *   Divider = 1
+ *   Multipler = 66
+ */
+
+#define BOARD_CKGR_PLLAR_COUNT     (63 << PMC_CKGR_PLLAR_COUNT_SHIFT)
+#define BOARD_CKGR_PLLAR_OUT       (0)
+#define BOARD_CKGR_PLLAR_MUL       (65 << PMC_CKGR_PLLAR_MUL_SHIFT)
+#define BOARD_CKGR_PLLAR_DIV       PMC_CKGR_PLLAR_DIV_BYPASS
+
+/* PMC master clock register settings.
+ *
+ *  Master/Processor Clock Source Selection = PLLA
+ *  Master/Processor Clock Prescaler        = 1
+ *  PLLA Divider                            = 2
+ *  Master Clock Division (MDIV)            = 3
+ *
+ *  NOTE: Bit PLLADIV2 must always be set to 1 when MDIV is set to 3.
+ *
+ *  Prescaler input                         = 792MHz / 2 = 396MHz
+ *  Prescaler output                        = 792MHz / 1 = 396MHz
+ *  Processor Clock (PCK)                   = 396MHz
+ *  Master clock (MCK)                      = 396MHz / 3 = 132MHz
+ */
+
+#define BOARD_PMC_MCKR_CSS         PMC_MCKR_CSS_PLLA
+#define BOARD_PMC_MCKR_PRES        PMC_MCKR_PRES_DIV1
+#define BOARD_PMC_MCKR_PLLADIV     PMC_MCKR_PLLADIV2
+#define BOARD_PMC_MCKR_MDIV        PMC_MCKR_MDIV_PCKDIV3
+
+/* USB UTMI PLL start-up time */
+
+#define BOARD_CKGR_UCKR_UPLLCOUNT  (3 << PMC_CKGR_UCKR_UPLLCOUNT_SHIFT)
+
+/* Resulting frequencies */
+
+#define BOARD_MAINOSC_FREQUENCY    (12000000)  /* MAINOSC: 12MHz crystal on-board */
+#define BOARD_PLLA_FREQUENCY       (792000000) /* PLLACK:  66 * 12Mhz / 1 */
+#define BOARD_PCK_FREQUENCY        (396000000) /* CPU:     PLLACK / 2 / 1  */
+#define BOARD_MCK_FREQUENCY        (132000000) /* MCK:     PLLACK / 2 / 1 / 3 */
+
+/* HSMCI clocking
+ *
+ * Multimedia Card Interface clock (MCCK or MCI_CK) is Master Clock (MCK)
+ * divided by (2*(CLKDIV+1)).
+ *
+ *   MCI_SPEED = MCK / (2*(CLKDIV+1))
+ *   CLKDIV = MCI / MCI_SPEED / 2 - 1
+ *
+ * Where CLKDIV has a range of 0-255.
+ */
+
+/* MCK = 96MHz, CLKDIV = 119, MCI_SPEED = 96MHz / 2 * (119+1) = 400 KHz */
+
+#define HSMCI_INIT_CLKDIV          (119 << HSMCI_MR_CLKDIV_SHIFT)
+
+/* MCK = 96MHz, CLKDIV = 3, MCI_SPEED = 96MHz / 2 * (3+1) = 12 MHz */
+
+#define HSMCI_MMCXFR_CLKDIV        (3 << HSMCI_MR_CLKDIV_SHIFT)
+
+/* MCK = 96MHz, CLKDIV = 1, MCI_SPEED = 96MHz / 2 * (1+1) = 24 MHz */
+
+#define HSMCI_SDXFR_CLKDIV         (1 << HSMCI_MR_CLKDIV_SHIFT)
+#define HSMCI_SDWIDEXFR_CLKDIV     HSMCI_SDXFR_CLKDIV
+
+/* FLASH wait states
+ *
+ * FWS Max frequency
+ *     1.62V 1.8V
+ * --- ----- ------
+ *  0  24MHz 27MHz
+ *  1  40MHz 47MHz
+ *  2  72MHz 84MHz
+ *  3  84MHz 96MHz
+ */
+
+#define BOARD_FWS                  3
 
 /* LED definitions ******************************************************************/
+/* There are two LEDs on the SAMA5D3 series-CM board that can be controlled
+ * by software.  A  blue LED is controlled via PIO pins.  A red LED normally
+ * provides an indication that power is supplied to the board but can also
+ * be controlled via software.
+ *
+ *   PE25.  This blue LED is pulled high and is illuminated by pulling PE25
+ *   low.
+ *
+ *   PE24.  The red LED is also pulled high but is driven by a transistor so
+ *   that it is illuminated when power is applied even if PE24 is not
+ *   configured as an output.  If PE24 is configured as an output, then the
+ *   LCD is illuminated by a high output.
+ */
 
-#define LED_STARTED       0
-#define LED_HEAPALLOCATE  1
-#define LED_IRQSENABLED   2
-#define LED_STACKCREATED  3
-#define LED_INIRQ         4
-#define LED_SIGNAL        5
-#define LED_ASSERTION     6
-#define LED_PANIC         7
+/* LED index values for use with sam_setled() */
+
+#define BOARD_BLUE        0
+#define BOARD_RED         1
+#define BOARD_NLEDS       2
+
+/* LED bits for use with sam_setleds() */
+
+#define BOARD_BLUE_BIT    (1 << BOARD_BLUE)
+#define BOARD_RED_BIT     (1 << BOARD_RED)
+
+
+/* These LEDs are not used by the board port unless CONFIG_ARCH_LEDS is
+ * defined.  In that case, the usage by the board port is defined in
+ * include/board.h and src/sam_leds.c. The LEDs are used to encode OS-related
+ * events as follows:
+ *
+ *      SYMBOL            Val    Meaning                     LED state
+ *                                                         Blue     Red
+ *      ----------------- ---   -----------------------  -------- --------   */
+#define LED_STARTED       0  /* NuttX has been started     OFF      OFF      */
+#define LED_HEAPALLOCATE  0  /* Heap has been allocated    OFF      OFF      */
+#define LED_IRQSENABLED   0  /* Interrupts enabled         OFF      OFF      */
+#define LED_STACKCREATED  1  /* Idle stack created         ON       OFF      */
+#define LED_INIRQ         2  /* In an interrupt              No change       */
+#define LED_SIGNAL        2  /* In a signal handler          No change       */
+#define LED_ASSERTION     2  /* An assertion failed          No change       */
+#define LED_PANIC         3  /* The system has crashed     OFF      Blinking */
+#undef  LED_IDLE             /* MCU is is sleep mode         Not used        */
+
+/* Thus if the blue LED is statically on, NuttX has successfully booted and
+ * is, apparently, running normmally.  If the red is flashing at
+ * approximately 2Hz, then a fatal error has been detected and the system
+ * has halted.
+ */
 
 /* Button definitions ***************************************************************/
+/* There are five push button switches on the SAMA5D3X-EK base board:
+ *
+ *   1. One Reset, board reset (BP1)
+ *   2. One Wake up, push button to bring the processor out of low power mode
+ *     (BP2)
+ *   3. One User momentary Push Button
+ *   4. One Disable CS Push Button
+ *
+ * Only the momentary push button is controllable by software (labeled
+ * "PB_USER1" on the board):
+ *
+ *   - PE27.  Pressing the switch connect PE27 to grounded.  Therefore, PE27
+ *     must be pulled high internally.  When the button is pressed the SAMA5
+ *     will sense "0" is on PE27.
+ */
+
+#define BUTTON_USER1      0
+#define NUM_BUTTONS       1
+
+#define BUTTON_USER1_BIT  (1 << BUTTON_USER1)
+
+/************************************************************************************
+ * Assembly Language Macros
+ ************************************************************************************/
+
+#ifdef __ASSEMBLY__
+	.macro	config_sdram
+	.endm
+#endif /* __ASSEMBLY__ */
 
 /************************************************************************************
  * Public Data
@@ -147,7 +308,7 @@ uint8_t up_buttons(void);
  *
  ************************************************************************************/
 
-#ifdef CONFIG_PIOA_IRQ
+#ifdef CONFIG_SAMA5_PIOE_IRQ
 xcpt_t up_irqbutton(int id, xcpt_t irqhandler);
 #endif
 #endif /* CONFIG_ARCH_BUTTONS */
@@ -157,5 +318,5 @@ xcpt_t up_irqbutton(int id, xcpt_t irqhandler);
 }
 #endif
 
-#endif /* __ASSEMBLY__ */
+#endif /* !__ASSEMBLY__ */
 #endif  /* __CONFIGS_SAMA5D3X_EK_INCLUDE_BOARD_H */

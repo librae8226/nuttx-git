@@ -34,8 +34,8 @@
  *
  ************************************************************************************/
 
-#ifndef __ARCH_ARM_SRC_SAM34_SAM3U_GPIO_H
-#define __ARCH_ARM_SRC_SAM34_SAM3U_GPIO_H
+#ifndef __ARCH_ARM_SRC_SAM34_SAM4S_GPIO_H
+#define __ARCH_ARM_SRC_SAM34_SAM4S_GPIO_H
 
 /************************************************************************************
  * Included Files
@@ -203,4 +203,4 @@ extern "C"
 #endif
 
 #endif /* __ASSEMBLY__ */
-#endif /* __ARCH_ARM_SRC_SAM34_SAM3U_GPIO_H */
+#endif /* __ARCH_ARM_SRC_SAM34_SAM4S_GPIO_H */

@@ -160,8 +160,79 @@
 /************************************************************************************
  * Assemby Macros
  ************************************************************************************/
+/* cp15_cache Cache Operations
+ *
+ * Usage
+ *
+ * They are performed as MCR instructions and only operate on a level 1 cache
+ * associated with  ARM v7 processor.
+ *
+ * The supported operations are:
+ *
+ *   1. Any of these operations can be applied to any data cache or any
+ *      unified cache.
+ *   2. Invalidate by MVA. Performs an invalidate of a data or unified cache
+ *      line
+ *      based on the address it contains.
+ *   3. Invalidate by set/way. Performs an invalidate of a data or unified
+ *      cache line based on its location in the cache hierarchy.
+ *   4. Clean by MVA.  Performs a clean of a data or unified cache line based
+ *      on the address it contains.
+ *   5. Clean by set/way. Performs a clean of a data or unified cache line
+ *      based on its location in the cache hierarchy.
+ *   6. Clean and Invalidate by MVA. Performs a clean and invalidate of a
+ *      data or unified cache line based on the address it contains.
+ *   7. Clean and Invalidate by set/way. Performs a clean and invalidate of
+ *      a data or unified cache line based on its location in the cache
+ *      hierarchy.
+ *
+ * NOTE: Many of these operations are implemented as assembly language
+ * macros or as C inline functions in the file cache.h.  The larger functions
+ * are implemented here as C-callable functions.
+ */
 
 #ifdef __ASSEMBLY__
+
+/************************************************************************************
+ * Name: cp15_disable_dcache
+ *
+ * Description:
+ *   Disable L1 D Cache
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ************************************************************************************/
+
+	.macro	cp15_disable_dcache, tmp
+	mrc		p15, 0, \tmp, c1, c0, 0		/* Read SCTLR */
+	bic		\tmp, \tmp, #(0x1 << 2)		/* Disable D cache */
+	mcr		p15, 0, \tmp, c1, c0, 0		/* Updagte the SCTLR */
+	.endm
+
+/************************************************************************************
+ * Name: cp15_disable_caches
+ *
+ * Description:
+ *   Disable L1 Caches
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ************************************************************************************/
+
+	.macro	cp15_disable_caches, tmp
+	mrc		p15, 0, \tmp, c1, c0, 0		/* Read SCTLR */
+	bic		\tmp, \tmp, #(0x1 << 12)	/* Disable I cache */
+	bic		\tmp, \tmp, #(0x1 << 2)		/* Disable D cache */
+	mcr		p15, 0, \tmp, c1, c0, 0		/* Updagte the SCTLR */
+	.endm
 
 /************************************************************************************
  * Name: cp15_invalidate_icache_inner_sharable
@@ -179,7 +250,7 @@
 
 	.macro	cp15_invalidate_icache_inner_sharable, tmp
 	mov		\tmp, #0
-	mrc		p15, 0, \tmp, c7, c1, 0
+	mrc		p15, 0, \tmp, c7, c1, 0 /* ICIALLUIS */
 	.endm
 
 /************************************************************************************
@@ -198,7 +269,7 @@
 
 	.macro	cp15_invalidate_btb_inner_sharable, tmp
 	mov		\tmp, #0
-	mrc		p15, 0, \tmp, c7, c1, 6
+	mrc		p15, 0, \tmp, c7, c1, 6 /* BPIALLIS */
 	.endm
 
 /************************************************************************************
@@ -217,7 +288,7 @@
 
 	.macro	cp15_invalidate_icache, tmp
 	mov		\tmp, #0
-	mrc		p15, 0, \tmp, c7, c5, 0
+	mrc		p15, 0, \tmp, c7, c5, 0 /* ICIALLU */
 	.endm
 
 /************************************************************************************
@@ -235,7 +306,7 @@
  ************************************************************************************/
 
 	.macro	cp15_invalidate_icache_bymva, va
-	mrc		p15, 0, \va, c7, c5, 1
+	mrc		p15, 0, \va, c7, c5, 1 /* ICIMVAU */
 	.endm
 
 /************************************************************************************
@@ -254,7 +325,7 @@
 
 	.macro	cp15_flush_btb, tmp
 	mov		\tmp, #0
-	mrc		p15, 0, \tmp, c7, c5, 6
+	mrc		p15, 0, \tmp, c7, c5, 6 /* BPIALL */
 	.endm
 
 /************************************************************************************
@@ -273,7 +344,7 @@
 
 	.macro	cp15_flush_btb_bymva, tmp
 	mov		\tmp, #0
-	mrc		p15, 0, \tmp, c7, c5, 7
+	mrc		p15, 0, \tmp, c7, c5, 7 /* BPIMVA */
 	.endm
 
 /************************************************************************************
@@ -291,7 +362,7 @@
  ************************************************************************************/
 
 	.macro	cp15_invalidate_dcacheline_bymva, va
-	mrc		p15, 0, \va, c7, c6, 1
+	mrc		p15, 0, \va, c7, c6, 1 /* DCIMVAC */
 	.endm
 
 /************************************************************************************
@@ -309,7 +380,7 @@
  ************************************************************************************/
 
 	.macro	cp15_invalidate_dcacheline_bysetway, setway
-	mrc		p15, 0, \setway, c7, c6, 2
+	mrc		p15, 0, \setway, c7, c6, 2 /* DCISW */
 	.endm
 
 /************************************************************************************
@@ -327,7 +398,7 @@
  ************************************************************************************/
 
 	.macro	cp15_clean_dcache_bymva, va
-	mrc		p15, 0, \va, c7, c10, 1
+	mrc		p15, 0, \va, c7, c10, 1 /* DCCMVAC */
 	.endm
 
 /************************************************************************************
@@ -345,11 +416,11 @@
  ************************************************************************************/
 
 	.macro	cp15_clean_dcache_bysetway, setway
-	mrc		p15, 0, \setway, c7, c10, 2
+	mrc		p15, 0, \setway, c7, c10, 2 /* DCCSW */
 	.endm
 
 /************************************************************************************
- * Name: cp15_clean_dcache_bymva
+ * Name: cp15_clean_ucache_bymva
  *
  * Description:
  *   Clean unified cache line by MVA
@@ -362,8 +433,8 @@
  *
  ************************************************************************************/
 
-	.macro	cp15_clean_dcache_bymva, setway
-	mrc		p15, 0, \setway, c7, c11, 1
+	.macro	cp15_clean_ucache_bymva, setway
+	mrc		p15, 0, \setway, c7, c11, 1 /* DCCMVAU */
 	.endm
 
 /************************************************************************************
@@ -381,7 +452,7 @@
  ************************************************************************************/
 
 	.macro	cp15_cleaninvalidate_dcacheline_bymva, va
-	mrc		p15, 0, \va, c7, c14, 1
+	mrc		p15, 0, \va, c7, c14, 1 /* DCCIMVAC */
 	.endm
 
 /************************************************************************************
@@ -399,7 +470,7 @@
  ************************************************************************************/
 
 	.macro	cp15_cleaninvalidate_dcacheline, setway
-	mrc		p15, 0, \setway, c7, c14, 2
+	mrc		p15, 0, \setway, c7, c14, 2 /* DCCISW */
 	.endm
 
 #endif /* __ASSEMBLY__ */
@@ -409,6 +480,61 @@
  ************************************************************************************/
 
 #ifndef __ASSEMBLY__
+
+/************************************************************************************
+ * Name: cp15_disable_dcache
+ *
+ * Description:
+ *   Disable L1 Caches
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ************************************************************************************/
+
+static inline void cp15_disable_dcache(void)
+{
+  __asm__ __volatile__
+    (
+      "\tmrc  p15, 0, r0, c1, c0, 0\n"  /* Read SCTLR */
+      "\tbic  r0, r0, #(1 << 2)\n"      /* Disable D cache */
+      "\tmcr  p15, 0, r0, c1, c0, 0\n"  /* Updagte the SCTLR */
+      :
+      :
+      : "r0", "memory"
+    );
+}
+
+/************************************************************************************
+ * Name: cp15_disable_caches
+ *
+ * Description:
+ *   Disable L1 Caches
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ************************************************************************************/
+
+static inline void cp15_disable_caches(void)
+{
+  __asm__ __volatile__
+    (
+      "\tmrc  p15, 0, r0, c1, c0, 0\n"  /* Read SCTLR */
+      "\tbic  r0, r0, #(1 << 12)\n"     /* Disable I cache */
+      "\tbic  r0, r0, #(1 << 2)\n"      /* Disable D cache */
+      "\tmcr  p15, 0, r0, c1, c0, 0\n"  /* Updagte the SCTLR */
+      :
+      :
+      : "r0", "memory"
+    );
+}
 
 /************************************************************************************
  * Name: cp15_invalidate_icache_inner_sharable
@@ -429,7 +555,7 @@ static inline void cp15_invalidate_icache_inner_sharable(void)
   __asm__ __volatile__
     (
       "\tmov r0, #0\n"
-      "\tmcr p15, 0, r0, c7, c1, 0\n"
+      "\tmcr p15, 0, r0, c7, c1, 0\n" /* ICIALLUIS */
       :
       :
       : "r0", "memory"
@@ -455,7 +581,7 @@ static inline void cp15_invalidate_btb_inner_sharable(void)
   __asm__ __volatile__
     (
       "\tmov r0, #0\n"
-      "\tmcr p15, 0, r0, c7, c1, 6\n"
+      "\tmcr p15, 0, r0, c7, c1, 6\n" /* BPIALLIS */
       :
       :
       : "r0", "memory"
@@ -481,7 +607,7 @@ static inline void cp15_invalidate_icache(void)
   __asm__ __volatile__
     (
       "\tmov r0, #0\n"
-      "\tmcr p15, 0, r0, c7, c5, 0\n"
+      "\tmcr p15, 0, r0, c7, c5, 0\n" /* ICIALLU */
       :
       :
       : "r0", "memory"
@@ -506,7 +632,7 @@ static inline void cp15_invalidate_icache_bymva(unsigned int va)
 {
   __asm__ __volatile__
     (
-      "\tmcr p15, 0, %0, c7, c5, 1\n"
+      "\tmcr p15, 0, %0, c7, c5, 1\n" /* ICIMVAU */
       :
       : "r" (va)
       : "memory"
@@ -532,7 +658,7 @@ static inline void cp15_flush_btb(void)
   __asm__ __volatile__
     (
       "\tmov r0, #0\n"
-      "\tmcr p15, 0, r0, c7, c5, 6\n"
+      "\tmcr p15, 0, r0, c7, c5, 6\n" /* BPIALL */
       :
       :
       : "r0", "memory"
@@ -558,7 +684,7 @@ static inline void cp15_flush_btb_bymva(void)
   __asm__ __volatile__
     (
       "\tmov r0, #0\n"
-      "\tmcr p15, 0, r0, c7, c5, 7\n"
+      "\tmcr p15, 0, r0, c7, c5, 7\n" /* BPIMVA */
       :
       :
       : "r0", "memory"
@@ -585,7 +711,7 @@ static inline void cp15_invalidate_dcacheline_bymva(unsigned int va)
 {
   __asm__ __volatile__
     (
-      "\tmcr p15, 0, %0, c7, c6, 1\n"
+      "\tmcr p15, 0, %0, c7, c6, 1\n" /* DCIMVAC */
       :
       : "r" (va)
       : "memory"
@@ -612,7 +738,7 @@ static inline void cp15_invalidate_dcacheline_bysetway(unsigned int setway)
 {
   __asm__ __volatile__
     (
-      "\tmcr p15, 0, %0, c7, c6, 2\n"
+      "\tmcr p15, 0, %0, c7, c6, 2\n" /* DCISW */
       :
       : "r" (setway)
       : "memory"
@@ -639,7 +765,7 @@ static inline void cp15_clean_dcache_bymva(unsigned int va)
 {
   __asm__ __volatile__
     (
-      "\tmcr p15, 0, %0, c7, c10, 1\n"
+      "\tmcr p15, 0, %0, c7, c10, 1\n" /* DCCMVAC */
       :
       : "r" (va)
       : "memory"
@@ -664,7 +790,7 @@ static inline void cp15_clean_dcache_bysetway(unsigned int setway)
 {
   __asm__ __volatile__
     (
-      "\tmcr p15, 0, %0, c7, c10, 2\n"
+      "\tmcr p15, 0, %0, c7, c10, 2\n" /* DCCSW */
       :
       : "r" (setway)
       : "memory"
@@ -672,7 +798,7 @@ static inline void cp15_clean_dcache_bysetway(unsigned int setway)
 }
 
 /************************************************************************************
- * Name: cp15_clean_dcache_bymva
+ * Name: cp15_clean_ucache_bymva
  *
  * Description:
  *   Clean unified cache line by MVA
@@ -685,11 +811,11 @@ static inline void cp15_clean_dcache_bysetway(unsigned int setway)
  *
  ************************************************************************************/
 
-static inline void cp15_clean_dcache_bymva(unsigned int setway)
+static inline void cp15_clean_ucache_bymva(unsigned int setway)
 {
   __asm__ __volatile__
     (
-      "\tmcr p15, 0, %0, c7, c11, 1\n"
+      "\tmcr p15, 0, %0, c7, c11, 1\n" /* DCCMVAU */
       :
       : "r" (setway)
       : "memory"
@@ -714,7 +840,7 @@ static inline void cp15_cleaninvalidate_dcacheline_bymva(unsigned int va)
 {
   __asm__ __volatile__
     (
-      "\tmcr p15, 0, r0, c7, c14, 1\n"
+      "\tmcr p15, 0, r0, c7, c14, 1\n" /* DCCIMVAC */
       :
       : "r" (va)
       : "memory"
@@ -739,7 +865,7 @@ static inline void cp15_cleaninvalidate_dcacheline(unsigned int setway)
 {
   __asm__ __volatile__
     (
-      "\tmcr p15, 0, %0, c7, c14, 2\n"
+      "\tmcr p15, 0, %0, c7, c14, 2\n" /* DCCISW */
       :
       : "r" (setway)
       : "memory"
@@ -765,12 +891,13 @@ extern "C" {
  ****************************************************************************/
 
 /****************************************************************************
- * Name: cp15_coherent_dcache_for_dma
+ * Name: cp15_coherent_dcache
  *
  * Description:
- *   Ensure that the I and D caches are coherent within specified region.
- *   This is typically used when code has been written to a memory region,
- *   and will be executed.
+ *   Ensure that the I and D caches are coherent within specified region
+ *   by cleaning the D cache (i.e., flushing the D cache contents to memory
+ *   and invalidating the I cache. This is typically used when code has been
+ *   written to a memory region, and will be executed.
  *
  * Input Parameters:
  *   start - virtual start address of region
@@ -781,10 +908,10 @@ extern "C" {
  *
  ****************************************************************************/
 
-void cp15_coherent_dcache_for_dma(uintptr_t start, uintptr_t end);
+void cp15_coherent_dcache(uintptr_t start, uintptr_t end);
 
 /****************************************************************************
- * Name: cp15_invalidate_dcache_for_dma
+ * Name: cp15_invalidate_dcache
  *
  * Description:
  *   Invalidate the data cache within the specified region; we will be
@@ -800,13 +927,30 @@ void cp15_coherent_dcache_for_dma(uintptr_t start, uintptr_t end);
  *
  ****************************************************************************/
 
-void cp15_invalidate_dcache_for_dma(uintptr_t start, uintptr_t end);
+void cp15_invalidate_dcache(uintptr_t start, uintptr_t end);
 
 /****************************************************************************
- * Name: cp15_clean_dcache_for_dma
+ * Name: cp15_invalidate_dcache_all
  *
  * Description:
- *   Clean the data cache within the specified region
+ *   Invalidate the entire contents of D cache.
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   None
+ *
+ ****************************************************************************/
+
+void cp15_invalidate_dcache_all(void);
+
+/****************************************************************************
+ * Name: cp15_clean_dcache
+ *
+ * Description:
+ *   Clean the data cache within the specified region by flushing the
+ *   contents of the data cache to memory.
  *
  * Input Parameters:
  *   start - virtual start address of region
@@ -817,13 +961,14 @@ void cp15_invalidate_dcache_for_dma(uintptr_t start, uintptr_t end);
  *
  ****************************************************************************/
 
-void cp15_clean_dcache_for_dma(uintptr_t start, uintptr_t end);
+void cp15_clean_dcache(uintptr_t start, uintptr_t end);
 
 /****************************************************************************
- * Name: cp15_flush_dcache_for_dma
+ * Name: cp15_flush_dcache
  *
  * Description:
- *   Flush the data cache within the specified region
+ *   Flush the data cache within the specified region by cleaning and
+ *   invalidating the the D cache.
  *
  * Input Parameters:
  *   start - virtual start address of region
@@ -834,7 +979,7 @@ void cp15_clean_dcache_for_dma(uintptr_t start, uintptr_t end);
  *
  ****************************************************************************/
 
-void cp15_flush_dcache_for_dma(uintptr_t start, uintptr_t end);
+void cp15_flush_dcache(uintptr_t start, uintptr_t end);
 
 #undef EXTERN
 #ifdef __cplusplus

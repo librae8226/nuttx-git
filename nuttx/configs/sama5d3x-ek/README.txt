@@ -3,32 +3,80 @@ README
 
   This README file describes the port of NuttX to the SAMA5D3x-EK
   development boards. These boards feature the Atmel SAMA5D3
-  microprocessors.
+  microprocessors.  Four different SAMA5D3x-EK kits are available
+
+    - SAMA5D31-EK with the ATSAMA5D31 (http://www.atmel.com/devices/sama5d31.aspx)
+    - SAMA5D33-EK with the ATSAMA5D33 (http://www.atmel.com/devices/sama5d33.aspx)
+    - SAMA5D34-EK with the ATSAMA5D34 (http://www.atmel.com/devices/sama5d34.aspx)
+    - SAMA5D35-EK with the ATSAMA5D35 (http://www.atmel.com/devices/sama5d35.aspx)
+
+  The each consist of an identical base board with different plug-in
+  modules for each CPU.  I also have a 7 inch LCD for my SAMA5D3x-EK, but this
+  is not yet generally available..
+
+    SAMA5D3 Family
+
+                              ATSAMA5D31    ATSAMA5D33    ATSAMA5D34    ATSAMA5D35
+    ------------------------- ------------- ------------- ------------- -------------
+    Pin Count                 324           324           324           324
+    Max. Operating Frequency  536           536           536           536
+    CPU                       Cortex-A5     Cortex-A5     Cortex-A5     Cortex-A5
+    Max I/O Pins              160           160           160           160
+    Ext Interrupts            160           160           160           160
+    USB Transceiver           3             3             3             3
+    USB Speed                 Hi-Speed      Hi-Speed      Hi-Speed      Hi-Speed
+    USB Interface             Host, Device  Host, Device  Host, Device  Host, Device
+    SPI                       6             6             6             6
+    TWI (I2C)                 3             3             3             3
+    UART                      7             5             5             7
+    CAN                       -             -             2             2
+    LIN                       4             4             4             4
+    SSC                       2             2             2             2
+    Ethernet                  1             1             1             2
+    SD / eMMC                 3             2             3             3
+    Graphic LCD               Yes           Yes           Yes           -
+    Camera Interface          Yes           Yes           Yes           Yes
+    ADC channels              12            12            12            12
+    ADC Resolution (bits)     12            12            12            12
+    ADC Speed (ksps)          440           440           440           440
+    Resistive Touch Screen    Yes           Yes           Yes           Yes
+    Crypto Engine             AES/DES/      AES/DES/      AES/DES/      AES/DES/
+                              SHA/TRNG      SHA/TRNG      SHA/TRNG      SHA/TRNG
+    SRAM (Kbytes)             128           128           128           128
+    External Bus Interface    1             1             1             1
+    DRAM Memory               DDR2/LPDDR,   DDR2/LPDDR,   DDR2/LPDDR,   DDR2/LPDDR,
+                              SDRAM/LPSDR   SDRAM/LPSDR   DDR2/LPDDR,   DDR2/LPDDR,
+    NAND Interface            Yes           Yes           Yes           Yes
+    Temp. Range (deg C)       -40 to 85     -40 to 85     -40 to 85     -40 to 85
+    I/O Supply Class          1.8/3.3       1.8/3.3       1.8/3.3       1.8/3.3
+    Operating Voltage (Vcc)   1.08 to 1.32  1.08 to 1.32  1.08 to 1.32  1.08 to 1.32
+    FPU                       Yes           Yes           Yes           Yes
+    MPU / MMU                 No/Yes        No/Yes        No/Yes        No/Yes
+    Timers                    5             5             5             6
+    Output Compare channels   6             6             6             6
+    Input Capture Channels    6             6             6             6
+    PWM Channels              4             4             4             4
+    32kHz RTC                 Yes           Yes           Yes           Yes
+    Packages                  LFBGA324_A    LFBGA324_A    LFBGA324_A    LFBGA324_A
 
 Contents
 ========
 
-  - Configurations
-
-Contents
-^^^^^^^^
-
-  - PIO Muliplexing
   - Development Environment
   - GNU Toolchain Options
   - IDEs
   - NuttX EABI "buildroot" Toolchain
   - NuttX OABI "buildroot" Toolchain
   - NXFLAT Toolchain
+  - Loading Code into SRAM with J-Link
+  - Writing to FLASH using SAM-BA
+  - Creating and Using NORBOOT
   - Buttons and LEDs
   - Serial Consoles
+  - Serial FLASH
+  - HSMCI Card Slots
   - SAMA5D3x-EK Configuration Options
   - Configurations
-
-PIO Muliplexing
-===============
-
-  To be provided
 
 Development Environment
 =======================
@@ -46,14 +94,13 @@ Development Environment
   toolchains will likely cause problems.
 
 GNU Toolchain Options
-^^^^^^^^^^^^^^^^^^^^^
+=====================
 
   The NuttX make system will support the several different toolchain options.
 
-  All testing has been conducted using the AtmelStudio GCC toolchain.  To use
-  the CodeSourcery, devkitARM or other GNU toolchain, you simply need to add
-  add one of the following configuration options to your .config (or defconfig)
-  file:
+  All testing has been conducted using the CodeSourcery GCC toolchain.  To use
+  a different toolchain, you simply need to add change to one of the following
+  configuration options to your .config (or defconfig) file:
 
     CONFIG_ARMV7A_TOOLCHAIN_CODESOURCERYW=y  : CodeSourcery under Windows
     CONFIG_ARMV7A_TOOLCHAIN_CODESOURCERYL=y  : CodeSourcery under Linux
@@ -63,8 +110,9 @@ GNU Toolchain Options
     CONFIG_ARMV7A_TOOLCHAIN_GNU_EABIL=y      : Generic GCC ARM EABI toolchain for Linux
     CONFIG_ARMV7A_TOOLCHAIN_GNU_EABIW=y      : Generic GCC ARM EABI toolchain for Windows
 
-  The AtmelStudio GCC toolchain is selected with CONFIG_ARMV7A_TOOLCHAIN_GNU_EABIW=y
-  and setting the PATH variable appropriately.
+  The CodeSourcery GCC toolchain is selected with
+  CONFIG_ARMV7A_TOOLCHAIN_GNU_EABIW=y and setting the PATH variable
+  appropriately.
 
   If you are not using AtmelStudio GCC toolchain, then you may also have to
   modify the PATH in the setenv.h file if your make cannot find the tools.
@@ -108,7 +156,7 @@ GNU Toolchain Options
   path or will get the wrong version of make.
 
 IDEs
-^^^^
+====
 
   NuttX is built using command-line make.  It can be used with an IDE, but some
   effort will be required to create the project (There is a simple RIDE project
@@ -141,7 +189,7 @@ IDEs
   startup object needed by RIDE.
 
 NuttX EABI "buildroot" Toolchain
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+================================
 
   A GNU GCC-based toolchain is assumed.  The files */setenv.sh should
   be modified to point to the correct path to the Cortex-M3 GCC toolchain (if
@@ -184,7 +232,7 @@ NuttX EABI "buildroot" Toolchain
   See instructions below.
 
 NuttX OABI "buildroot" Toolchain
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+================================
 
   The older, OABI buildroot toolchain is also available.  To use the OABI
   toolchain, use the build instructtions above, but (1) modify the
@@ -193,7 +241,7 @@ NuttX OABI "buildroot" Toolchain
   cortexm3-defconfig-4.3.3
 
 NXFLAT Toolchain
-^^^^^^^^^^^^^^^^
+================
 
   If you are *not* using the NuttX buildroot toolchain and you want to use
   the NXFLAT tools, then you will still have to build a portion of the buildroot
@@ -225,21 +273,296 @@ NXFLAT Toolchain
   8. Edit setenv.h, if necessary, so that the PATH variable includes
      the path to the newly built NXFLAT binaries.
 
+Loading Code into SRAM with J-Link
+==================================
+
+  Loading code with the Segger tools and GDB
+  ------------------------------------------
+
+    1) Change directories into the directory where you built NuttX.
+    2) Start the GDB server and wait until it is ready to accept GDB
+       connections.
+    3) Then run GDB like this:
+
+         $ arm-none-eabi-gdb
+         (gdb) target remote localhost:2331
+         (gdb) mon reset
+         (gdb) load nuttx
+         (gdb) ... start debugging ...
+
+  Loading code using J-Link Commander
+  ----------------------------------
+
+    J-Link> r
+    J-Link> loadbin <file> <address>
+    J-Link> setpc <address of __start>
+    J-Link> ... start debugging ...
+
+Writing to FLASH using SAM-BA
+=============================
+
+  Assumed starting configuration:
+
+    1. You have installed the J-Lnk CDC USB driver (Windows only, there is
+        no need to install a driver on any regular Linux distribution),
+    2. You have the USB connected to DBGU poort (J14)
+    3. Terminal configuration:  115200 8N1
+
+  Using SAM-BA to write to FLASH:
+
+    1. Exit the terminal emulation program and remove the USB cable from
+       the DBGU port (J14)
+    2. Connect the USB cable to the device USB port (J20)
+    3. JP9 must open (BMS == 1) to boot from on-chip Boot ROM.
+    4. Press and maintain PB4 CS_BOOT button and power up the board.  PB4
+       CS_BOOT button prevents booting from Nand or serial Flash by
+       disabling Flash Chip Selects after having powered the board, you can
+       release the PB4 BS_BOOT button.
+    5. On Windows you may need to wait for a device driver to be installed.
+    6. Start the SAM-BA application, selecting (1) the correct USB serial
+       port, and (2) board = at91sama5d3x-ek.
+    7. The SAM-BA menu should appear.
+    8. Select the FLASH bank that you want to use and the address to write
+       to and "Execute"
+    9. When you are finished writing to FLASH, remove the USB cable from J20
+       and re-connect the serial link on USB CDC / DBGU connector (J14) and
+       re-open the terminal emulator program.
+    10. If you loaded code in NOR flash (CS0), then you will need to close
+        JP9 (BMS == 0) to force booting out of NOR flash (see NOTE).
+    11. Power cycle the board.
+
+  NOTES:  By closing JP9 (BMS == 0), you can force the board to boot
+  directly to NOR FLASH.  Executing from other memories will require that
+  you provide a special code header so that you code can be recognized as a
+  boot-able image by the ROM bootloader.
+
+Creating and Using NORBOOT
+==========================
+
+  In order to have more control of debugging code that runs out of NOR FLASH,
+  I created the sama5d3x-ek/norboot configuration.  That configuration is
+  described below under "Configurations."
+
+  Here are some general instructions on how to build an use norboot:
+
+  Building:
+  1. Remove any old configurations (if applicable).
+
+       cd <nuttx>
+       make distclean
+
+  2. Install and build the norboot configuration:
+
+       cd tools
+       ./configure.sh sama5d3x-ek/<subdir>
+       cd -
+       . ./setenv.sh
+
+     Before sourcing the setenv.sh file above, you should examine it and
+     perform edits as necessary so that TOOLCHAIN_BIN is the correct path
+     to the directory than holds your toolchain binaries.
+
+  3. Rename the binaries.  Since you will need two versions of NuttX:  this
+     norboot version that runs in internal SRAM and another under test in
+     NOR FLASH, I rename the resulting binary files so that they can be
+     distinguished:
+
+       mv nuttx norboot
+       mv nuttx.hex norboot.hex
+       mv nuttx.bin norboot.bin
+
+  4. Build your NOR configuration and write this into NOR FLASH.  Here, for
+     example, is how you would create the NSH NOR configuration:
+
+       cd <nuttx>
+       make distclean                 # Remove the norboot configuration
+       cd tools
+       ./configure.sh sama5d3x-ek/nsh # Establish the NSH configuration
+       cd -
+       make                           # Build the NSH configuration
+
+     Then use SAM-BA to write the nuttx.bin binary into NOR FLASH.  This
+     will involve holding the CS_BOOT button and power cycling to start
+     the ROM loader.  The SAM-BA serial connection will be on the device
+     USB port, not the debug USB port.  Follow the SAM-BA instruction to
+     write the nuttx.bin binary to NOR FLASH.
+
+   5. Restart the system without holding CS_BOOT to get back to the normal
+      debug setup.
+
+   6. Then start the J-Link GDB server and GDB.  In GDB, I do the following:
+
+       (gdb) mon reset                # Reset and halt the CPU
+       (gdb) load norboot             # Load norboot into internal SRAM
+       (gdb) mon go                   # Start norboot
+       (gdb) mon halt                 # Break in
+       (gdb) mon reg pc = 0x10000040  # Set the PC to NOR flash entry point
+       (gdb) mon go                   # And jump into NOR flash
+
+      The norboot program can also be configured to jump directly into
+      NOR FLASH with out requiring the the final halt and go, but since I
+      have been debugging the early boot sequence, the above sequence has
+      been most convenient for me.
+
+    STATUS:
+      2013-7-30:  I have been unable to execute this configuration from NOR
+        FLASH by closing the BMS jumper (J9).  As far as I can tell, this
+        jumper does nothing on my board???  So I have been using the norboot
+        configuration exclusively to start the program-under-test in NOR FLASH.
+
 Buttons and LEDs
-^^^^^^^^^^^^^^^^
+================
 
   Buttons
   -------
-  To be provided
+  There are five push button switches on the SAMA5D3X-EK base board:
+
+    1. One Reset, board reset (BP1)
+    2. One Wake up, push button to bring the processor out of low power mode
+      (BP2)
+    3. One User momentary Push Button
+    4. One Disable CS Push Button
+
+  Only the momentary push button is controllable by software (labeled
+  "PB_USER1" on the board):
+
+    - PE27.  Pressing the switch connect PE27 to grounded.  Therefore, PE27
+      must be pulled high internally.  When the button is pressed the SAMA5
+      will sense "0" is on PE27.
 
   LEDs
   ----
-  To be provided
+  There are two LEDs on the SAMA5D3 series-CM board that can be controlled
+  by software.  A  blue LED is controlled via PIO pins.  A red LED normally
+  provides an indication that power is supplied to the board but can also
+  be controlled via software.
+
+    PE25.  This blue LED is pulled high and is illuminated by pulling PE25
+    low.
+
+    PE24.  The red LED is also pulled high but is driven by a transistor so
+    that it is illuminated when power is applied even if PE24 is not
+    configured as an output.  If PE24 is configured as an output, then the
+    LCD is illuminated by a high output.
+
+  These LEDs are not used by the board port unless CONFIG_ARCH_LEDS is
+  defined.  In that case, the usage by the board port is defined in
+  include/board.h and src/sam_leds.c. The LEDs are used to encode OS-related
+  events as follows:
+
+    SYMBOL                Meaning                     LED state
+                                                    Blue     Red
+    -------------------  -----------------------  -------- --------
+    LED_STARTED          NuttX has been started     OFF      OFF
+    LED_HEAPALLOCATE     Heap has been allocated    OFF      OFF
+    LED_IRQSENABLED      Interrupts enabled         OFF      OFF
+    LED_STACKCREATED     Idle stack created         ON       OFF
+    LED_INIRQ            In an interrupt              No change
+    LED_SIGNAL           In a signal handler          No change
+    LED_ASSERTION        An assertion failed          No change
+    LED_PANIC            The system has crashed     OFF      Blinking
+    LED_IDLE             MCU is is sleep mode         Not used
+
+  Thus if the blue LED is statically on, NuttX has successfully booted and
+  is, apparently, running normmally.  If the red is flashing at
+  approximately 2Hz, then a fatal error has been detected and the system
+  has halted.
 
 Serial Consoles
 ===============
 
-  To be provided
+  USART1
+  ------
+  By default USART1 is used as the NuttX serial console in all
+  configurations (unless otherwise noted).  USART1 is buffered with an
+  RS-232 Transceiver (Analog Devices ADM3312EARU) and connected to the DB-9
+  male socket (J8).
+
+    USART1 Connector J8
+    -------------------------------
+    SAMA5 FUNCTION  NUTTX PIO
+    PIO   NAME      CONFIGURATION
+    ---- ---------- ---------------
+    PB27 RTS1       PIO_USART1_RTS
+    PB29 TXD1       PIO_USART1_TXD
+    PB28 RXD1       PIO_USART1_RXD
+    PB26 CTS1       PIO_USART1_CTS
+
+    NOTE: Debug TX and RX pins also go the the ADM3312EARU, but I am
+    uncertain of the functionality.
+
+    -------------------------------
+    SAMA5 FUNCTION  NUTTX PIO
+    PIO   NAME      CONFIGURATION
+    ---- ---------- ---------------
+    PB31 DTXD       PIO_DBGU_DTXD
+    PB30 DRXD       PIO_DBGU_DRXD
+
+  Hardware UART via CDC
+  ---------------------
+  "J-Link-OB-ATSAM3U4C comes with an additional hardware UART that is
+   accessible from a host via CDC which allows terminal communication with
+   the target device. This feature is enabled only if a certain port (CDC
+   disabled, PA25, pin 24 on J-Link-OB-ATSAM3U4C) is NOT connected to ground
+   (open).
+
+    - Jumper JP16 not fitted: CDC is enabled
+    - Jumper JP16 fitted : CDC is disabled"
+
+Serial FLASH
+============
+
+  Both the Ronetix and Embest versions of the SAMAD3x CPU modules include an
+  Atmel AT25DF321A, 32-megabit, 2.7-volt SPI serial flash.  The SPI
+  connection is as follows:
+
+    AT25DF321A      SAMA5
+    --------------- -----------------------------------------------
+    SI              PD11 SPI0_MOSI
+    SO              PD10 SPI0_MIS0
+    SCK             PD12 SPI0_SPCK
+    /CS             PD13 via NL17SZ126 if JP1 is closed (See below)
+
+  JP1 and JP2 seem to related to /CS on the Ronetix board, but the usage is
+  less clear.  For the Embest module, JP1 must be closed to connect /CS to
+  PD13; on the Ronetix schematic, JP11 seems only to bypass a resistor (may
+  not be populated?).  I think closing JP1 is correct in either case.
+
+HSMCI Card Slots
+================
+
+  The SAMA5D3x-EK provides a two SD memory card slots:  (1) a full size SD
+  card slot (J7 labeled MCI0), and (2) a microSD memory card slot (J6
+  labeled MCI1).
+
+  The full size SD card slot connects via HSMCI0.  The card detect discrete
+  is available on PB17 (pulled high).  The write protect descrete is tied to
+  ground (via PP6) and not available to software.  The slot supports 8-bit
+  wide transfer mode, but the NuttX driver currently uses only the 4-bit
+  wide transfer mode
+
+    PD17 MCI0_CD
+    PD1  MCI0_DA0
+    PD2  MCI0_DA1
+    PD3  MCI0_DA2
+    PD4  MCI0_DA3
+    PD5  MCI0_DA4
+    PD6  MCI0_DA5
+    PD7  MCI0_DA6
+    PD8  MCI0_DA7
+    PD9  MCI0_CK
+    PD0  MCI0_CDA
+
+  The microSD connects vi HSMCI1.  The card detect discrete is available on
+  PB18 (pulled high):
+
+    PD18  MCI1_CD
+    PB20  MCI1_DA0
+    PB21  MCI1_DA1
+    PB22  MCI1_DA2
+    PB23  MCI1_DA3
+    PB24  MCI1_CK
+    PB19  MCI1_CDA
 
 SAMA5D3x-EK Configuration Options
 =================================
@@ -288,17 +611,17 @@ SAMA5D3x-EK Configuration Options
   CONFIG_ENDIAN_BIG - define if big endian (default is little
   endian)
 
-  CONFIG_DRAM_SIZE - Describes the installed DRAM (SRAM in this case):
+  CONFIG_RAM_SIZE - Describes the installed DRAM (SRAM in this case):
 
-    CONFIG_DRAM_SIZE=0x0002000 (128Kb)
+    CONFIG_RAM_SIZE=0x0002000 (128Kb)
 
-  CONFIG_DRAM_START - The physical start address of installed DRAM
+  CONFIG_RAM_START - The physical start address of installed DRAM
 
-    CONFIG_DRAM_START=0x20000000
+    CONFIG_RAM_START=0x20000000
 
-  CONFIG_DRAM_VSTART - The virutal start address of installed DRAM
+  CONFIG_RAM_VSTART - The virutal start address of installed DRAM
 
-    CONFIG_DRAM_VSTART=0x20000000
+    CONFIG_RAM_VSTART=0x20000000
 
   CONFIG_ARCH_IRQPRIO - The SAM3UF103Z supports interrupt prioritization
 
@@ -371,11 +694,11 @@ SAMA5D3x-EK Configuration Options
   Some subsystems can be configured to operate in different ways. The drivers
   need to know how to configure the subsystem.
 
-    CONFIG_PIOA_IRQ          - Support PIOA interrupts
-    CONFIG_PIOB_IRQ          - Support PIOB interrupts
-    CONFIG_PIOC_IRQ          - Support PIOD interrupts
-    CONFIG_PIOD_IRQ          - Support PIOD interrupts
-    CONFIG_PIOE_IRQ          - Support PIOE interrupts
+    CONFIG_SAMA5_PIOA_IRQ     - Support PIOA interrupts
+    CONFIG_SAMA5_PIOB_IRQ     - Support PIOB interrupts
+    CONFIG_SAMA5_PIOC_IRQ     - Support PIOD interrupts
+    CONFIG_SAMA5_PIOD_IRQ     - Support PIOD interrupts
+    CONFIG_SAMA5_PIOE_IRQ     - Support PIOE interrupts
 
     CONFIG_USART0_ISUART     - USART0 is configured as a UART
     CONFIG_USART1_ISUART     - USART1 is configured as a UART
@@ -409,7 +732,7 @@ Configurations
     . ./setenv.sh
 
   Before sourcing the setenv.sh file above, you should examine it and perform
-  edits as necessary so that BUILDROOT_BIN is the correct path to the directory
+  edits as necessary so that TOOLCHAIN_BIN is the correct path to the directory
   than holds your toolchain binaries.
 
   And then build NuttX by simply typing the following.  At the conclusion of
@@ -468,6 +791,342 @@ Configurations
   Configuration sub-directories
   -----------------------------
 
+  hello:
+    This configuration directory, performs the (almost) simplest of all
+    possible examples:  examples/hello.  This just comes up, says hello
+    on the serial console and terminates.  This configuration is of
+    value during bring-up because it is small and can run entirely out
+    of internal SRAM.
+
+    NOTES:
+    1. This configuration uses the default USART1 serial console.  That
+       is easily changed by reconfiguring to (1) enable a different
+       serial peripheral, and (2) selecting that serial peripheral as
+       the console device.
+
+    2. By default, this configuration is set up to build on Windows
+       under either a Cygwin or MSYS environment using a recent, Windows-
+       native, generic ARM EABI GCC toolchain (such as the CodeSourcery
+       toolchain).  Both the build environment and the toolchain
+       selection can easily be changed by reconfiguring:
+
+       CONFIG_HOST_WINDOWS=y                   : Windows operating system
+       CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under windows
+       CONFIG_ARMV7A_TOOLCHAIN_CODESOURCERYW=y : CodeSourcery for Windows
+
+    3. This configuration executes out of internal SRAM and can only
+       be loaded via JTAG.
+
+       CONFIG_SAMA5_BOOT_ISRAM=y               : Boot into internal SRAM
+       CONFIG_BOOT_RUNFROMISRAM=y              : Run from internal SRAM
+
+    STATUS:
+      2013-7-19:  This configuration (as do the others) run at 396MHz.
+        The SAMA5D3 can run at 536MHz.  I still need to figure out the
+        PLL settings to get that speed.
+
+      2013-7-28:  This configuration was verified functional.
+
+      2013-7-31:  Delay loop calibrated.
+
+  norboot:
+    This is a little program to help debug of code in NOR flash.  It
+    does the following:
+
+    - It enables and configures NOR FLASH, then
+    - Waits for you to break in with GDB.
+
+    At that point, you can set the PC and begin executing from NOR FLASH
+    under debug control.
+
+    NOTES:
+    1. This program derives from the hello configuration.  All of the
+       notes there apply to this configuration as well.
+
+    STATUS:
+      2013-7-19:  This configuration (as do the others) run at 396MHz.
+        The SAMA5D3 can run at 536MHz.  I still need to figure out the
+        PLL settings to get that speed.
+
+      2013-7-31:  Delay loop calibrated.
+
+  nsh:
+    This configuration directory provide the NuttShell (NSH).
+
+    NOTES:
+    1. This configuration uses the default USART1 serial console.  That
+       is easily changed by reconfiguring to (1) enable a different
+       serial peripheral, and (2) selecting that serial peripheral as
+       the console device.
+
+    2. By default, this configuration is set up to build on Windows
+       under either a Cygwin or MSYS environment using a recent, Windows-
+       native, generic ARM EABI GCC toolchain (such as the CodeSourcery
+       toolchain).  Both the build environment and the toolchain
+       selection can easily be changed by reconfiguring:
+
+       CONFIG_HOST_WINDOWS=y                   : Windows operating system
+       CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under windows
+       CONFIG_ARMV7A_TOOLCHAIN_CODESOURCERYW=y : CodeSourcery for Windows
+
+    3. This configuration executes out of CS0 NOR flash and can only
+       be loaded via SAM-BA.  These are the relevant configuration options
+       the define the NOR FLASH configuration:
+
+       CONFIG_SAMA5_BOOT_CS0FLASH=y            : Boot from FLASH on CS0
+       CONFIG_BOOT_RUNFROMFLASH=y              : Run in place on FLASH (vs copying to RAM)
+
+       CONFIG_SAMA5_EBICS0=y                   : Enable CS0 external memory
+       CONFIG_SAMA5_EBICS0_SIZE=134217728      : Memory size is 128KB
+       CONFIG_SAMA5_EBICS0_NOR=y               : Memory type is NOR FLASH
+
+       CONFIG_FLASH_START=0x10000000           : Physical FLASH start address
+       CONFIG_FLASH_VSTART=0x10000000          : Virtual FLASH start address
+       CONFIG_FLASH_SIZE=134217728             : FLASH size (again)
+
+       CONFIG_RAM_START=0x00300400             : Data stored after page table
+       CONFIG_RAM_VSTART=0x00300400
+       CONFIG_RAM_SIZE=114688                  : Available size of 128KB - 16KB for page table
+
+       NOTE:  In order to boot in this configuration, you need to close the
+       BMS jumper.
+
+    4. This configuration has support for NSH built-in applications enabled.
+       However, no built-in applications are selected in the base configuration.
+
+    5. This configuration has support for the FAT file system built in.  However,
+       by default, there are no block drivers intialized.  The FAT file system can
+       still be used to create RAM disks.
+
+    6. SDRAM support can be enabled by adding the following to your NuttX
+       configuration file:
+
+       System Type->ATSAMA5 Peripheral Support
+       CONFIG_SAMA5_MPDDRC=y                   : Enable the DDR controller
+
+       System Type->External Memory Configuration
+       CONFIG_SAMA5_DDRCS=y                    : Tell the system that DRAM is at the DDR CS
+       CONFIG_SAMA5_DDRCS_SIZE=268435456       : 2Gb DRAM -> 256GB
+       CONFIG_SAMA5_DDRCS_LPDDR2=y             : Its DDR2
+       CONFIG_SAMA5_MT47H128M16RT=y            : This is the type of DDR2
+
+       Now that you have SDRAM enabled, what are you going to do with it?  One
+       thing you can is add it to the heap
+
+       System Type->Heap Configuration
+       CONFIG_SAMA5_DDRCS_HEAP=y               : Add the SDRAM to the heap
+
+       Memory Management
+       CONFIG_MM_REGIONS=2                     : Two memory regions:  ISRAM and SDRAM
+
+       Another thing you could do is to enable the RAM test built-in
+       application:
+
+    7. You can enable the NuttX RAM test that may be used to verify the
+       external SDAM.  To do this, keep the SDRAM out of the heap so that
+       it can be tested without crashing programs using the memory:
+
+       System Type->Heap Configuration
+       CONFIG_SAMA5_DDRCS_HEAP=n               : Don't add the SDRAM to the heap
+
+       Memory Management
+       CONFIG_MM_REGIONS=1                     : One memory regions:  ISRAM
+
+       Then enable the RAM test built-in application:
+
+       Application Configuration->System NSH Add-Ons->Ram Test
+       CONFIG_SYSTEM_RAMTEST=y
+
+       In this configuration, the SDRAM is not added to heap and so is not
+       excessible to the applications.  So the RAM test can be freely
+       executed against the SRAM memory beginning at address 0x2000:0000
+       (DDR CS):
+
+       nsh> ramtest -h
+       Usage: <noname> [-w|h|b] <hex-address> <decimal-size>
+
+       Where:
+         <hex-address> starting address of the test.
+         <decimal-size> number of memory locations (in bytes).
+         -w Sets the width of a memory location to 32-bits.
+         -h Sets the width of a memory location to 16-bits (default).
+         -b Sets the width of a memory location to 8-bits.
+
+       To test the entire external 256MB SRAM:
+
+       nsh> ramtest -w 20000000 268435456
+       RAMTest: Marching ones: 20000000 268435456
+       RAMTest: Marching zeroes: 20000000 268435456
+       RAMTest: Pattern test: 20000000 268435456 55555555 aaaaaaaa
+       RAMTest: Pattern test: 20000000 268435456 66666666 99999999
+       RAMTest: Pattern test: 20000000 268435456 33333333 cccccccc
+       RAMTest: Address-in-address test: 20000000 268435456
+
+    8. The Embest or Ronetix CPU module includes an Atmel AT25DF321A,
+       32-megabit, 2.7-volt SPI serial flash.  Support for that serial
+       FLASH can be enabled by modifying the NuttX configuration as
+       follows:
+
+       System Type -> SAMA5 Peripheral Support
+         CONFIG_SAMA5_SPI0=y                   : Enable SPI0
+
+       Device Drivers -> Memory Technology Device (MTD) Support
+         CONFIG_SPI=y                          : Enable SPI support
+         CONFIG_SPI_EXCHANGE=y                 : Support the exchange method
+
+       Device Drivers -> SPI Driver Support
+         CONFIG_MTD=y                          : Enable MTD support
+         CONFIG_MTD_AT25=y                     : Enable the AT25 driver
+         CONFIG_AT25_SPIMODE=0                 : Use SPI mode 0
+         CONFIG_AT25_SPIFREQUENCY=20000000     : Use SPI frequency 20MHz
+
+       Application Configuration -> NSH Library
+         CONFIG_NSH_ARCHINIT=y                 : NSH board-initialization
+
+       Board Selection
+         CONFIG_SAMA5_AT25_AUTOMOUNT=y         : Mounts AT25 for NSH
+         CONFIG_SAMA5_AT25_FTL=y               : Create block driver for FAT
+
+       NOTE that you must close JP1 on the Embest/Ronetix board in
+       order to enable the AT25 FLASH chip select.
+
+       You can then format the AT25 FLASH for a FAT file system and mount
+       the file system at /mnt/sdcard using these NSH commands:
+
+         nsh> mkfatfs /dev/mtdblock0
+         nsh> mount -t vfat /dev/mtdblock0 /mnt/sdcard
+
+       Then you an use the FLASH as a normal FAT file system:
+
+         nsh> echo "This is a test" >/mnt/sdcard/atest.txt
+         nsh> ls -l /mnt/sdcard
+         /mnt/sdcard:
+          -rw-rw-rw-      16 atest.txt
+         nsh> cat /mnt/sdcard/atest.txt
+         This is a test
+
+    9. Enabling HSMCI support. The SAMA5D3x-EK provides a two SD memory card
+       slots:  (1) a full size SD card slot (J7 labeled MCI0), and (2) a
+       microSD memory card slot (J6 labeled MCI1).  The full size SD card
+       slot connects via HSMCI0; the microSD connects vi HSMCI1.  Support
+       for both SD slots can be enabled with the following settings:
+
+       System Type->ATSAMA5 Peripheral Support
+         CONFIG_SAMA5_HSMCI0=y                 : Enable HSMCI0 support
+         CONFIG_SAMA5_HSMCI1=y                 : Enable HSMCI1 support
+         CONFIG_SAMA5_DMAC0=y                  : DMAC0 is needed by HSMCI0
+         CONFIG_SAMA5_DMAC1=y                  : DMAC1 is needed by HSMCI1
+
+         CONFIG_SAMA5_PIO_IRQ=y                : PIO interrupts needed
+         CONFIG_SAMA5_PIOD_IRQ=y               : Card detect pins are on PIOD
+
+       Device Drivers ->
+         CONFIG_MMCSD=y                        : Enable MMC/SD support
+         CONFIG_MMSCD_NSLOTS=1                 : One slot per driver instance
+         CONFIG_MMCSD_HAVECARDDETECT=y         : Supports card-detect PIOs
+         CONFIG_MMCSD_SDIO=y                   : SDIO-based MMC/SD support
+         CONFIG_SDIO_DMA=y                     : Use SDIO DMA
+         CONFIG_SDIO_BLOCKSETUP=y              : Needs to know block sizes
+
+       Library Routines
+         CONFIG_SCHED_WORKQUEUE=y              : Driver needs work queue support
+
+       Application Configuration -> NSH Library
+         CONFIG_NSH_ARCHINIT=y                 : NSH board-initialization
+
+    STATUS:
+      2013-7-19:  This configuration (as do the others) run at 396MHz.
+        The SAMA5D3 can run at 536MHz.  I still need to figure out the
+        PLL settings to get that speed.
+
+        If the CPU speed changes, then so must the NOR and SDRAM
+        initialization!
+
+      2013-7-31:  I have been unable to execute this configuration from NOR
+        FLASH by closing the BMS jumper (J9).  As far as I can tell, this
+        jumper does nothing on my board???  I have been using the norboot
+        configuration to start the program in NOR FLASH (see just above).
+        See "Creating and Using NORBOOT" above.
+
+      2013-7-31:  This NSH configuration appears to be fully functional.
+
+      2013-7-31:  Using delay loop calibration from the hello configuration.
+        That configuration runs out of internal SRAM and, as a result, this
+        configuration needs to be recalibrated.
+
+      2013-8-3:  SDRAM configuration and RAM test usage have been verified
+        and are functional.  I not some issues now; Occassionally, SDRAM is
+        not functional on initial boot.  Or is initially not functional but
+        improves with accesses.  Clearly, more work needs to be done.
+
+        Here is another strange observation:  SDRAM accesses tend to
+        generate occasional spurious interrupts in those same conditions
+        where the memory test fails!  No idea why.
+
+      2013-8-5:  The AT25 configuration has been verified to be functional.
+
   ostest:
     This configuration directory, performs a simple OS test using
     examples/ostest.
+
+    NOTES:
+    1. This configuration uses the default USART1 serial console.  That
+       is easily changed by reconfiguring to (1) enable a different
+       serial peripheral, and (2) selecting that serial peripheral as
+       the console device.
+
+    2. By default, this configuration is set up to build on Windows
+       under either a Cygwin or MSYS environment using a recent, Windows-
+       native, generic ARM EABI GCC toolchain (such as the CodeSourcery
+       toolchain).  Both the build environment and the toolchain
+       selection can easily be changed by reconfiguring:
+
+       CONFIG_HOST_WINDOWS=y                   : Windows operating system
+       CONFIG_WINDOWS_CYGWIN=y                 : POSIX environment under windows
+       CONFIG_ARMV7A_TOOLCHAIN_CODESOURCERYW=y : CodeSourcery for Windows
+
+    3. This configuration executes out of CS0 NOR flash and can only
+       be loaded via SAM-BA.  These are the relevant configuration options
+       the define the NOR FLASH configuration:
+
+       CONFIG_SAMA5_BOOT_CS0FLASH=y            : Boot from FLASH on CS0
+       CONFIG_BOOT_RUNFROMFLASH=y              : Run in place on FLASH (vs copying to RAM)
+
+       CONFIG_SAMA5_EBICS0=y                   : Enable CS0 external memory
+       CONFIG_SAMA5_EBICS0_SIZE=134217728      : Memory size is 128KB
+       CONFIG_SAMA5_EBICS0_NOR=y               : Memory type is NOR FLASH
+
+       CONFIG_FLASH_START=0x10000000           : Physical FLASH start address
+       CONFIG_FLASH_VSTART=0x10000000          : Virtual FLASH start address
+       CONFIG_FLASH_SIZE=134217728             : FLASH size (again)
+
+       CONFIG_RAM_START=0x00300400             : Data stored after page table
+       CONFIG_RAM_VSTART=0x00300400
+       CONFIG_RAM_SIZE=114688                  : Available size of 128KB - 16KB for page table
+
+       NOTE:  In order to boot in this configuration, you need to close the
+       BMS jumper.
+
+    STATUS:
+      2013-7-19:  This configuration (as do the others) run at 396MHz.
+        The SAMA5D3 can run at 536MHz.  I still need to figure out the
+        PLL settings to get that speed.
+
+        If the CPU speed changes, then so must the NOR and SDRAM
+        initialization!
+
+      2013-7-30:  I have been unable to execute this configuration from NOR
+        FLASH by closing the BMS jumper (J9).  As far as I can tell, this
+        jumper does nothing on my board???  I have been using the norboot
+        configuration to start the program in NOR FLASH (see just above).
+        See "Creating and Using NORBOOT" above.
+
+       2013-7-31:  The OS test configuration is basically functional, but
+         takes a very long time in the round-robin scheduler test computing
+         prime numbers.  This test is supposed to be slow -- like several
+         seconds -- but not many minutes.  No idea why yet.  The best guess
+         would be an excessive number of context switches.
+
+      2013-7-31:  Using delay loop calibration from the hello configuration.
+        That configuration runs out of internal SRAM and, as a result, this
+        configuration needs to be recalibrated.

@@ -1,7 +1,7 @@
 /****************************************************************************
- * arch/arm/src/arm/up_copystate.c
+ * arch/arm/src/arm/up_copyfullstate.c
  *
- *   Copyright (C) 2007-2009 Gregory Nutt. All rights reserved.
+ *   Copyright (C) 2007-2009, 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -61,12 +61,12 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_copystate
+ * Name: up_copyfullstate
  ****************************************************************************/
 
 /* A little faster than most memcpy's */
 
-void up_copystate(uint32_t *dest, uint32_t *src)
+void up_copyfullstate(uint32_t *dest, uint32_t *src)
 {
   int i;
 

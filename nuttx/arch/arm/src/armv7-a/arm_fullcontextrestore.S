@@ -74,16 +74,41 @@
 
 	.globl	up_fullcontextrestore
 	.type	up_fullcontextrestore, function
+
 up_fullcontextrestore:
 
-	/* On entry, a1 (r0) holds address of the register save area */
+	/* On entry, a1 (r0) holds address of the register save area.  All other
+	 * registers are available for use.
+	 */
+
+#ifdef CONFIG_ARCH_FPU
+	/* First, restore the floating point registers.  Lets do this before we
+	 * restore the arm registers so that we have plentry of registers to
+	 * work with.
+	 */
+
+	add		r1, r0, #(4*REG_S0)		/* r1=Address of FP register storage */
+
+	/* Load all floating point registers.  Registers are loaded in numeric order,
+	 * s0, s1, ... in increasing address order.
+	 */
+
+	vldmia	r1!, {s0-s31}			/* Restore the full FP context */
+
+	/* Load the floating point control and status register.   At the end of the
+	 * vstmia, r1 will point to the FPCSR storage location.
+	 */
+
+	ldr		r2, [r1], #4			/* Fetch the floating point control and status register */
+	vmsr	fpscr, r2				/* Restore the FPCSR */
+#endif
 
 	/* Recover all registers except for r0, r1, R15, and CPSR */
 
 	add		r1, r0, #(4*REG_R2)		/* Offset to REG_R2 storage */
 	ldmia	r1, {r2-r14}			/* Recover registers */
 
-	/* Create a stack frame to hold the PC */
+	/* Create a stack frame to hold the some registers */
 
 	sub		sp, sp, #(3*4)			/* Frame for three registers */
 	ldr		r1, [r0, #(4*REG_R0)]	/* Fetch the stored r0 value */

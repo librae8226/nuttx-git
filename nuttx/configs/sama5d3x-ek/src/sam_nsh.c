@@ -1,7 +1,7 @@
 /****************************************************************************
- * arch/arm/src/armv7-m/up_copystate.c
+ * config/sama5d3x-ek/src/sam_nsh.c
  *
- *   Copyright (C) 2009, 2011 Gregory Nutt. All rights reserved.
+ *   Copyright (C) 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,48 +39,104 @@
 
 #include <nuttx/config.h>
 
-#include <stdint.h>
+#include <sys/mount.h>
 
-#include "os_internal.h"
-#include "up_internal.h"
+#include <stdbool.h>
+#include <stdio.h>
+#include <errno.h>
+#include <debug.h>
+
+#ifdef CONFIG_SAMA5_SPI0
+#  include <nuttx/spi/spi.h>
+#  include <nuttx/mtd.h>
+#  include <nuttx/fs/nxffs.h>
+
+#  include "sam_spi.h"
+#endif
+
+#include "sama5d3x-ek.h"
 
 /****************************************************************************
- * Pre-processor Definitions
+ * Pre-Processor Definitions
  ****************************************************************************/
 
-/****************************************************************************
- * Private Data
- ****************************************************************************/
+/* Configuration ************************************************************/
 
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
+/* Assign minor device numbers.  We basically ignore more of the NSH
+ * configuration here (NSH SLOTNO ignored completely; NSH minor extended
+ * to handle more devices.
+ */
+
+#ifndef CONFIG_NSH_MMCSDMINOR
+#  define CONFIG_NSH_MMCSDMINOR 0
+#endif
+
+#ifdef HAVE_HSMCI_MTD
+
+#  define HSMCI0_SLOTNO 0
+#  define HSMCI1_SLOTNO 1
+
+#  ifdef CONFIG_SAMA5_HSMCI0
+#     define HSMCI0_MINOR  CONFIG_NSH_MMCSDMINOR
+#     define HSMCI1_MINOR  (CONFIG_NSH_MMCSDMINOR+1)
+#     define AT25_MINOR    (CONFIG_NSH_MMCSDMINOR+2)
+#  else
+#     define HSMCI1_MINOR  CONFIG_NSH_MMCSDMINOR
+#     define AT25_MINOR    (CONFIG_NSH_MMCSDMINOR+1)
+#  endif
+#else
+#  define AT25_MINOR CONFIG_NSH_MMCSDMINOR
+#endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
 /****************************************************************************
- * Name: up_copystate
+ * Name: nsh_archinitialize
+ *
+ * Description:
+ *   Perform architecture specific initialization
+ *
  ****************************************************************************/
 
-/* A little faster than most memcpy's */
-
-void up_copystate(uint32_t *dest, uint32_t *src)
+int nsh_archinitialize(void)
 {
-  int i;
+#if defined(HAVE_AT25_MTD) || defined(HAVE_HSMCI_MTD)
+  int ret;
+#endif
 
-  /* In the Cortex-M3 model, the state is copied from the stack to the TCB,
-   * but only a reference is passed to get the state from the TCB.  So the
-   * following check avoids copying the TCB save area onto itself:
-   */
+  /* Initialize the AT25 driver */
 
-  if (src != dest)
+#ifdef HAVE_AT25_MTD
+  ret = sam_at25_initialize(AT25_MINOR);
+  if (ret < 0)
     {
-      for (i = 0; i < XCPTCONTEXT_REGS; i++)
-        {
-          *dest++ = *src++;
-        }
-    }
-}
+      fdbg("ERROR: sam_at25_initialize failed: %d\n", ret);
+      return ret;
+#endif
 
+#ifdef HAVE_HSMCI_MTD
+#ifdef CONFIG_SAMA5_HSMCI0
+  ret = sam_hsmci_initialize(HSMCI0_SLOTNO, HSMCI0_MINOR);
+  if (ret < 0)
+    {
+      fdbg("ERROR: sam_hsmci_initialize(%d,%d) failed: %d\n",
+           HSMCI0_SLOTNO, HSMCI0_MINOR, ret);
+      return ret;
+    }
+#endif
+
+#ifdef CONFIG_SAMA5_HSMCI1
+  ret = sam_hsmci_initialize(HSMCI1_SLOTNO, HSMCI1_MINOR);
+  if (ret < 0)
+    {
+      fdbg("ERROR: sam_hsmci_initialize(%d,%d) failed: %d\n",
+           HSMCI1_SLOTNO, HSMCI1_MINOR, ret);
+      return ret;
+    }
+#endif
+#endif
+
+  return OK;
+}

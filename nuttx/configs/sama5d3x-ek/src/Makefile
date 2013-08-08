@@ -46,6 +46,42 @@ ifeq ($(CONFIG_HAVE_CXX),y)
 CSRCS += sam_cxxinitialize.c
 endif
 
+ifeq ($(CONFIG_SAMA5_SPI0),y)
+CSRCS += sam_spi.c
+else
+ifeq ($(CONFIG_SAMA5_SPI1),y)
+CSRCS += sam_spi.c
+endif
+endif
+
+ifeq ($(CONFIG_SAMA5_DDRCS),y)
+CSRCS += sam_sdram.c
+endif
+
+ifeq ($(CONFIG_SAMA5_BOOT_CS0FLASH),y)
+CSRCS += sam_norflash.c
+endif
+
+ifeq ($(CONFIG_SAMA5_NOR_MAIN),y)
+CSRCS += nor_main.c
+endif
+
+ifeq ($(CONFIG_MTD_AT25),y)
+CSRCS += sam_at25.c
+endif
+
+ifeq ($(CONFIG_SAMA5_HSMCI0),y)
+CSRCS += sam_hsmci.c
+else
+ifeq ($(CONFIG_SAMA5_HSMCI1),y)
+CSRCS += sam_hsmci.c
+endif
+endif
+
+ifeq ($(CONFIG_NSH_ARCHINIT),y)
+CSRCS += sam_nsh.c
+endif
+
 ifeq ($(CONFIG_ARCH_LEDS),y)
 CSRCS += sam_autoleds.c
 else
@@ -65,11 +101,11 @@ ARCH_SRCDIR = $(TOPDIR)/arch/$(CONFIG_ARCH)/src
 ifeq ($(WINTOOL),y)
   CFLAGS += -I "${shell cygpath -w $(ARCH_SRCDIR)/chip}"
   CFLAGS += -I "${shell cygpath -w $(ARCH_SRCDIR)/common}"
-  CFLAGS += -I "${shell cygpath -w $(ARCH_SRCDIR)/armv7-m}"
+  CFLAGS += -I "${shell cygpath -w $(ARCH_SRCDIR)/armv7-a}"
 else
   CFLAGS += -I$(ARCH_SRCDIR)/chip
   CFLAGS += -I$(ARCH_SRCDIR)/common
-  CFLAGS += -I$(ARCH_SRCDIR)/armv7-m
+  CFLAGS += -I$(ARCH_SRCDIR)/armv7-a
 endif
 
 all: libboard$(LIBEXT)

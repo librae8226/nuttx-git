@@ -61,7 +61,7 @@
  *  MCR p15, <Op1>, <Rd>, <CRn>, <CRm>, <Op2> ; Write CP15 Register
  *
  * Where
- *  
+ *
  *   <Op1> is the Opcode_1 value for the register
  *   <Rd>  is a general purpose register
  *   <CRn> is the register number within CP15
@@ -147,14 +147,14 @@
 #define CP15_DCCIMVAC(r)   _CP15(0, r, c7, c14, 1)
 #define CP15_DCCISW(r)     _CP15(0, r, c7, c14, 2)
 
-#define CP15_TLBIALLIS(r)  _CP15(0, r, c8, c3, 0)   /* TLB maintenance operations */
-#define CP15_TLBIMVAIS(r)  _CP15(0, r, c8, c3, 1)
-#define CP15_TLBIASIDIS(r) _CP15(0, r, c8, c3, 2)
-#define CP15_TLBIMVAAIS(r) _CP15(0, r, c8, c3, 3)
-#define CP15_TLBIALL(r,c)  _CP15(0, r, c8, c, 0)    /* CRm = c5, c6, or c7 */
-#define CP15_TLBIMVA(r,c)  _CP15(0, r, c8, c, 1)    /* CRm = c5, c6, or c7 */
-#define CP15_TLBIASID(r,c) _CP15(0, r, c8, c, 2)    /* CRm = c5, c6, or c7 */
-#define CP15_TLBIMVAA(r,c) _CP15(0, r, c8, c, 3)    /* CRm = c5, c6, or c7 */
+#define CP15_TLBIALLIS(r)  _CP15(0, r, c8, c3, 0)   /* Invalidate entire unified TLB Inner Shareable */
+#define CP15_TLBIMVAIS(r)  _CP15(0, r, c8, c3, 1)   /* Invalidate unified TLB entry by MVA and ASID, Inner Shareable */
+#define CP15_TLBIASIDIS(r) _CP15(0, r, c8, c3, 2)   /* Invalidate unified TLB by ASID match Inner Shareable */
+#define CP15_TLBIMVAAIS(r) _CP15(0, r, c8, c3, 3)   /* Invalidate unified TLB entry by MVA all ASID Inner Shareable */
+#define CP15_TLBIALL(r,c)  _CP15(0, r, c8, c, 0)    /* Invalidate entire instruction TLB. CRm = c5, c6, or c7 */
+#define CP15_TLBIMVA(r,c)  _CP15(0, r, c8, c, 1)    /* Invalidate instruction TLB entry by MVA and ASID. CRm = c5, c6, or c7 */
+#define CP15_TLBIASID(r,c) _CP15(0, r, c8, c, 2)    /* Invalidate data TLB by ASID match. CRm = c5, c6, or c7 */
+#define CP15_TLBIMVAA(r,c) _CP15(0, r, c8, c, 3)    /* Invalidate unified TLB entry by MVA and ASID. CRm = c5, c6, or c7 */
 
 #define CP15_MCR(r)        _CP15(0, r, c9, c12, 0)  /* Performance Monitor Control Register */
 #define CP15_PMCNTENSET(r) _CP15(0, r, c9, c12, 1)  /* Count Enable Set Register */
@@ -195,12 +195,5 @@
 #define CP15_TLBR(r)       _CP15(3, r, c15, c4, 2)  /* TLB Data Read Operation Register */
 #define CP15_CBADDR(r)     _CP15(4, r, c15, c0, 0)  /* Configuration Base Address Register */
 #define CP15_TLBHITMAP(r)  _CP15(5, r, c15, c0, 0)  /* TLB access and attributes */
-
-/* System control register descriptions.
- *
- * To be provided
- *
- * Reference: Cortex-A5™ MPCore, Technical Reference Manual, Paragraph 4.3.
- */
 
 #endif /* __ARCH_ARM_SRC_ARMV7_A_CP15_H */

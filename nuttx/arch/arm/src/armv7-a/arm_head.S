@@ -39,10 +39,7 @@
 
 #include <nuttx/config.h>
 
-#ifdef CONFIG_PAGING
-#  include <nuttx/page.h>
-#  include "pg_macros.h"
-#endif
+#include <arch/board/board.h>
 
 #include "arm.h"
 #include "cp15.h"
@@ -50,12 +47,13 @@
 #include "mmu.h"
 #include "chip.h"
 
+	.file	"arm_head.S"
+
 /**********************************************************************************
  * Configuration
  **********************************************************************************/
 
 #undef ALIGNMENT_TRAP
-#undef CPU_DCACHE_WRITETHROUGH
 #undef CPU_CACHE_ROUND_ROBIN
 #undef CPU_DCACHE_DISABLE
 #undef CPU_ICACHE_DISABLE
@@ -65,13 +63,12 @@
  * 1. We execute in place in FLASH (CONFIG_BOOT_RUNFROMFLASH=y).  In this case
  *    the boot logic must:
  *
- *    - Configure SDRAM, 
+ *    - Configure SDRAM,
  *    - Initialize the .data section in RAM, and
  *    - Clear .bss section
  */
 
 #ifdef CONFIG_BOOT_RUNFROMFLASH
-#  error "Configuration not implemented"
 #  define DO_SDRAM_INIT 1
 
   /* Check for the identity mapping:  For this configuration, this would be
@@ -91,7 +88,7 @@
  *    (CONFIG_BOOT_RUNFROMFLASH=n && CONFIG_BOOT_COPYTORAM=y).  In this case
  *    the boot logic must:
  *
- *    - Configure SDRAM, 
+ *    - Configure SDRAM,
  *    - Copy ourself to DRAM (after mapping it), and
  *    - Clear .bss section
  *
@@ -117,7 +114,7 @@
 
 /* 3. There is bootloader that copies us to DRAM (but probably not to the beginning)
  *    (CONFIG_BOOT_RUNFROMFLASH=n && CONFIG_BOOT_COPYTORAM=n). In this case SDRAM
- *    was initialized by the boot loader, and this boot logic must: 
+ *    was initialized by the boot loader, and this boot logic must:
  *
  *    - Clear .bss section
  */
@@ -129,33 +126,14 @@
    * beginning of RAM.
    */
 
-#  if !defined(CONFIG_DRAM_START) || !defined(CONFIG_DRAM_VSTART)
-#    error "CONFIG_DRAM_START or CONFIG_DRAM_VSTART is not defined"
+#  if !defined(CONFIG_RAM_START) || !defined(CONFIG_RAM_VSTART)
+#    error "CONFIG_RAM_START or CONFIG_RAM_VSTART is not defined"
 #  endif
 
-#  if CONFIG_DRAM_START == CONFIG_DRAM_VSTART
+#  if CONFIG_RAM_START == CONFIG_RAM_VSTART
 #    define CONFIG_IDENTITY_TEXTMAP 1
 #  endif
 
-#endif
-
-/* For each page table offset, the following provide (1) the physical address of
- * the start of the page table and (2) the number of page table entries in the
- * first page table.
- *
- * Coarse: PG_L1_PADDRMASK=0xfffffc00
- *         NPAGE1=(256 -((a) & 0x000003ff) >> 2) NPAGE1=1-256
- * Fine:   PG_L1_PADDRMASK=0xfffff000
- *         NPAGE1=(1024 -((a) & 0x00000fff) >> 2) NPAGE1=1-1024
- */
-
-#ifdef CONFIG_PAGING
-#  define PG_L2_TEXT_PBASE     (PG_L2_TEXT_PADDR & PG_L1_PADDRMASK)
-#  define PG_L2_TEXT_NPAGE1    (PTE_NPAGES - ((PG_L2_TEXT_PADDR & ~PG_L1_PADDRMASK) >> 2))
-#  define PG_L2_PGTABLE_PBASE  (PG_L2_PGTABLE_PADDR & PG_L1_PADDRMASK)
-#  define PG_L2_PGTABLE_NPAGE1 (PTE_NPAGES - ((PG_L2_PGTABLE_PADDR & ~PG_L1_PADDRMASK) >> 2))
-#  define PG_L2_DATA_PBASE     (PG_L2_DATA_PADDR & PG_L1_PADDRMASK)
-#  define PG_L2_DATA_NPAGE1    (PTE_NPAGES - ((PG_L2_DATA_PADDR & ~PG_L1_PADDRMASK) >> 2))
 #endif
 
 /****************************************************************************
@@ -163,13 +141,10 @@
  ****************************************************************************/
 
 /* RX_NSECTIONS determines the number of 1Mb sections to map for the
- * Read/eXecute address region.  This is based on CONFIG_DRAM_SIZE.  For most
- * ARMv7-A architectures, CONFIG_DRAM_SIZE describes the size of installed SDRAM.
- * But for other architectures, this might refer to the size of FLASH or
- * SRAM regions. (bad choice of naming).
+ * Read/eXecute address region.  This is based on NUTTX_TEXT_SIZE.
  */
 
-#define RX_NSECTIONS ((CONFIG_DRAM_SIZE+0x000fffff) >> 20)
+#define WR_NSECTIONS ((NUTTX_RAM_SIZE+0x000fffff) >> 20)
 
 /****************************************************************************
  * Assembly Macros
@@ -190,22 +165,6 @@
  * convert the page table base address to the base address of the section
  * containing both.
  */
-
-/* REVISIT:  This works now of the low vector case only because the RAM
- * sizes that we have been dealing with are less then 1MB so that both the
- * page table and the vector table are in the same 1MB RAM block.  But
- * this will certainly break later. Hence, the annoying warning.
- */
-
-#ifdef CONFIG_ARCH_LOWVECTORS
-#  warning "REVISIT"
-#endif
-
-//#ifndef CONFIG_ARCH_LOWVECTORS
-	.macro	mksection, section, pgtable
-	bic		\section, \pgtable, #0x000ff000
-	.endm
-//#endif
 
 /* This macro will modify r0, r1, r2 and r14 */
 
@@ -234,7 +193,7 @@ __start:
 	msr		cpsr_c, r0
 
 	/* Initialize DRAM using a macro provided by board-specific logic.
-	 * 
+	 *
 	 * This must be done in two cases:
 	 * 1. CONFIG_BOOT_RUNFROMFLASH.  The system is running from FLASH
 	 * 2. CONFIG_BOOT_COPYTORAM.  The system booted from FLASH but
@@ -247,9 +206,9 @@ __start:
 
 	/* Clear the 16K level 1 page table */
 
-	ldr		r4, .LCppgtable			/* r4=phys. page table */
+	ldr		r5, .LCppgtable			/* r5=phys. page table */
 #ifndef CONFIG_ARCH_ROMPGTABLE
-	mov		r0, r4
+	mov		r0, r5
 	mov		r1, #0
 	add		r2, r0, #PGTABLE_SIZE
 .Lpgtableclear:
@@ -260,6 +219,19 @@ __start:
 	teq		r0, r2
 	bne		.Lpgtableclear
 
+	/* Load information needed to map the .text region.  After the ldmia, we
+	 * will have:
+	 *
+	 *   R1 = Aligned, physical address of the start of the .text region
+	 *   R2 = Aligned, virtual address of the start of the .text region
+	 *   R3 = MMU flags associated with the .txt region
+	 *   R4 = The number of 1MB sections in the mapping
+	 *   R5 = The physical address of the L1 page table (from above)
+	 */
+
+	adr		r0, .LCtextinfo			/* Address of text info */
+	ldmia	r0, {r1, r2, r3, r4}	/* Load the text description */
+
 	/* Create identity mapping for first MB of the .text section to support
 	 * this startup logic executing out of the physical address space.  This
 	 * identity mapping will be removed by .Lvstart (see below).  Of course,
@@ -268,77 +240,81 @@ __start:
 	 */
 
 #ifndef CONFIG_IDENTITY_TEXTMAP
-	mksection r0, r4				/* r0=phys. base section */
-	ldr		r1, .LCmmuflags			/* FLGS=MMU_MEMFLAGS */
-	add		r3, r1, r0				/* r3=flags + base */
-	str		r3, [r4, r0, lsr #18]	/* identity mapping */
+	orr		r0, r1, r3				/* OR MMU flags into physical address */
+	str		r0, [r5, r1, lsr #18]	/* Identity mapping */
 #endif
 
-#ifdef CONFIG_PAGING
-
-	/* Map the read-only .text region in place.  This must be done
-	 * before the MMU is enabled and the virtual addressing takes
-	 * effect.  First populate the L1 table for the locked and paged
-	 * text regions.
+	/* Map the entire .text regtion.  We do this before enabling caches so
+	 * we know that the data will be in place in the data cache.  We map the
+	 * entire text region because we don't know which parts are needed for
+	 * start-up.
 	 *
-	 * We could probably make the the pg_l1span and pg_l2map macros into
-	 * call-able subroutines, but we would have to be carefully during
-	 * this phase while we are operating in a physical address space.
+	 * The page table base address is in R5.  Each 32-bit page table entry
+	 * maps 1 MB of address space and is indexed by the lower 20 bits of
+	 * the virtual address in R2
+	 */
+
+	add		r2, r5, r2, lsr #18		/* R2=Offset page table address */
+
+	/* No loop until each page table entry has been written for the .text
+	 * regtion.
+	 */
+
+.Lpgtextloop:
+	orr		r0, r1, r3				/* R0: OR MMU flags into physical address */
+	subs	r4, r4, #1				/* R4: Decrement the section count */
+	str		r0, [r2], #4			/* Save page table entry, increment page table address */
+	add		r1, r1, #(1024*1024)	/* R1: Increment the physical address */
+	bne		.Lpgtextloop			/* Loop while R4 is non-zero */
+
+#ifdef CONFIG_BOOT_RUNFROMFLASH
+	/* If we are executing from FLASH, then we will need additional mappings for
+	 * the primay RAM region that holds the .data, .bss, stack, and heap memory.
 	 *
-	 * NOTE: That the value of r5 (L1 table base address) must be
-	 * preserved through the following.
-	 */
-
-	adr	r0, .Ltxtspan
-	ldmia	r0, {r0, r1, r2, r3, r5}
- 	pg_l1span r0, r1, r2, r3, r5, r6
- 
-	/* Then populate the L2 table for the locked text region only. */
-
-	adr		r0, .Ltxtmap
-	ldmia	r0, {r0, r1, r2, r3}
- 	pg_l2map r0, r1, r2, r3, r5
-
-	/* Make sure that the page table is itself mapped and and read/write-able.
-	 * First, populate the L1 table:
-	 */
-
-	adr		r0, .Lptabspan
-	ldmia	r0, {r0, r1, r2, r3, r5}
- 	pg_l1span r0, r1, r2, r3, r5, r6
-
-	/* Then populate the L2 table. */
-
-	adr		r0, .Lptabmap
-	ldmia	r0, {r0, r1, r2, r3}
- 	pg_l2map r0, r1, r2, r3, r5
-
-#else /* CONFIG_PAGING */
-
-	/* Create a virtual single section mapping for the first MB of the .text
-	 * address space. Now, we have the first 1MB mapping to both phyical and
-	 * virtual addresses.  The rest of the .text mapping will be completed in
-	 * .Lvstart once we have moved the physical mapping out of the way.
+	 *   Here we expect to have:
+	 *   r5 = Address of the base of the L1 table
 	 *
-	 * Here we expect to have:
-	 * r4 = Address of the base of the L1 table
+	 *   REVISIT: We might need this second mapping under certain conditions
+	 *   when executing from RAM too.  When the RAM region is larger than 1MB
+	 *   and the page table is in the high end of RAM, then the single mapping
+	 *   above will not be sufficient.
+	 *
+	 *   REVISIT: If the page table is not located in the primary RAM regions,
+	 *   then we will also need an additional map the page table if the page
+	 *   table resides in internal SRAM.
+	 *
+	 * Load information needed to map the .text region.  After the ldmia, we
+	 * will have:
+	 *
+	 *   R1 = Aligned, physical address of the start of the .text region
+	 *   R2 = Aligned, virtual address of the start of the .text region
+	 *   R3 = MMU flags associated with the .txt region
+	 *   R4 = The number of 1MB sections in the mapping
+	 *   R5 = The physical address of the L1 page table (from above)
 	 */
 
-	ldr		r2, .LCvpgtable			/* r2=virt. page table */
-	mksection r0, r2				/* r0=virt. base section */
-	str		r3, [r4, r0, lsr #18]	/* identity mapping */
+	adr		r0, .LCraminfo			/* Address of primary RAM info */
+	ldmia	r0, {r1, r2, r3, r4}	/* Load the primary RAM description */
+	add		r2, r5, r2, lsr #18		/* R2=Offset page table addres */
 
-	/* NOTE: No .data/.bss access should be attempted.  This temporary mapping
-	 * can only be assumed to cover the initial .text region.
+	/* Loop until each page table entry has been written for the primary RAM
+	 * region.
 	 */
 
-#endif /* CONFIG_PAGING */
+.Lpgramloop:
+	orr		r0, r1, r3				/* R0: OR MMU flags into physical address */
+	subs	r4, r4, #1				/* R4: Decrement the section count */
+	str		r0, [r2], #4			/* Save page table entry, increment page table address */
+	add		r1, r1, #(1024*1024)	/* R1: Increment the physical address */
+	bne		.Lpgramloop				/* Loop while R4 is non-zero */
+
+#endif /* CONFIG_BOOT_RUNFROMFLASH */
 #endif /* CONFIG_ARCH_ROMPGTABLE */
 
 	/* The following logic will set up the ARMv7-A for normal operation.
 	 *
 	 * Here we expect to have:
-	 *   r4 = Address of the base of the L1 table
+	 *   r5 = Address of the base of the L1 table
 	 */
 
 	/* Invalidate caches and TLBs.
@@ -369,25 +345,22 @@ __start:
 	 *
 	 * Here we expect to have:
 	 *   r0 = Zero
-	 *   r4 = Address of the base of the L1 table
+	 *   r5 = Address of the base of the L1 table
 	 */
 
-	mcr		CP15_TTBR0(r4)
-	mcr		CP15_TTBR1(r4)
+	mcr		CP15_TTBR0(r5)
+	mcr		CP15_TTBR1(r5)
 
-	/* Clear the TTB control register (TTBCR) to indicate that we are using
+	/* Set the TTB control register (TTBCR) to indicate that we are using
 	 * TTBR0.  r0 still holds the value of zero.
+	 *
+	 *   N   : 0=Selects TTBR0 and 16KB page table size indexed by VA[31:20]
+	 *   PD0 : 0=Perform translation table walks using TTBR0
+	 *   PD1 : 0=Perform translation table walks using TTBR1 (but it is disabled)
+	 *   EAE : 0=Use 32-bit translation system
 	 */
 
 	mcr		CP15_TTBCR(r0)
-
-	/* Enable DCache write-through if so configured.
-	 *
-	 * The Cortex-A5 MPCore data cache only supports a write-back policy.
-	 */
-
-#ifdef CPU_DCACHE_WRITETHROUGH
-#endif 
 
 	/* Enable the MMU and caches
 	 * lr = Resume at .Lvstart with the MMU enabled
@@ -395,14 +368,11 @@ __start:
 
 	ldr		lr, .LCvstart			/* Abs. virtual address */
 
-	/* Configure the domain access register (see mmu.h).
-	 *
-	 *   Domains 0: Accesses are not checked
-	 *   Domains 1: Accesses are not checked
-	 *   Domains 2: Accesses checked against permissions in the TLB
+	/* Configure the domain access register (see mmu.h).  Only domain 0 is
+	 * supported and it uses the permissions in the TLB.
 	 */
 
-	mov		r0, #(DACR_MANAGER(0) | DACR_MANAGER(1) |  DACR_CLIENT(2))
+	mov		r0, #DACR_CLIENT(0)
 	mcr		CP15_DACR(r0)			/* Set domain access register */
 
 	/* Configure the system control register (see sctrl.h) */
@@ -450,7 +420,7 @@ __start:
 	orr		r0, r0, #(SCTLR_V)
 #endif
 
-	/* CR_RR - Round Robin cache replacement
+	/* Round Robin cache replacement
 	 *
 	 *   SCTLR_RR   Bit 14: The Cortex-A5 processor only supports a fixed random
 	 *                      replacement strategy.
@@ -459,7 +429,7 @@ __start:
 #ifndef CPU_CACHE_ROUND_ROBIN
 #endif
 
-	/* CR_C - Dcache enable
+	/* Dcache enable
 	 *
 	 *   SCTLR_C    Bit 2:  DCache enable
 	 */
@@ -468,7 +438,7 @@ __start:
 	orr		r0, r0, #(SCTLR_C)
 #endif
 
-	/* CR_C - Icache enable
+	/* Icache enable
 	 *
 	 *   SCTLR_I    Bit 12: ICache enable
 	 */
@@ -477,13 +447,25 @@ __start:
 	orr		r0, r0, #(SCTLR_I)
 #endif
 
-	/* CR_A - Alignment abort enable
+	/* Alignment abort enable
 	 *
 	 *   SCTLR_A    Bit 1:  Strict alignment enabled
 	 */
 
 #ifdef ALIGNMENT_TRAP
 	orr		r0, r0, #(SCTLR_A)
+#endif
+
+	/* AP[0:2] Permissions model
+	 *
+	 *   SCTLR_AFE  Bit 29: Full, legacy access permissions behavior (reset value).
+	 *
+	 * When AFE=1, the page table AP[0] is used as an access flag and AP[2:1]
+	 * control.  When AFE=0, AP[2:0] control access permissions.
+	 */
+
+#ifdef CONFIG_AFE_ENABLE
+	orr		r0, r0, #(SCTLR_AFE)
 #endif
 
 	/* Then write the configured control register */
@@ -506,57 +488,71 @@ __start:
  * PC_Relative Data
  ****************************************************************************/
 
-	/* Most addresses are virtual address */
-	
-	.type	.LCvstart, %object
-.LCvstart:
-	.long	.Lvstart
-
-#ifndef CONFIG_ARCH_ROMPGTABLE
-	.type	.LCmmuflags, %object
-.LCmmuflags:
-	.long	MMU_MEMFLAGS			/* MMU flags for memory sections */
-#endif
+	/* The physical base address of the page table */
 
 	.type	.LCppgtable, %object
 .LCppgtable:
 	.long	PGTABLE_BASE_PADDR		/* Physical start of page table */
+	.size	.LCppgtable, . -.LCppgtable
 
 #ifndef CONFIG_ARCH_ROMPGTABLE
-	.type	.LCvpgtable, %object
-.LCvpgtable:
-	.long	PGTABLE_BASE_VADDR		/* Virtual start of page table */
+	/* Text region description.  The order of these fields must not change
+	 * because the values are loaded using ldmia:
+	 *
+	 * 1) The aligned, physical base address of the .text section
+	 * 2) The aligned, virtual base address of the .text section
+	 * 3) The MMU flags to use with the .text space mapping
+	 * 4) The number of 1MB sections in the .text region
+	 *
+	 * Values provided for NUTTX_TEXT_* must all be properly aligned to 1MB
+	 * address boundaries
+	 */
+
+	.type	.LCtextinfo, %object
+.LCtextinfo:
+.LCptextbase:
+	.long	NUTTX_TEXT_PADDR			/* Physical base address */
+	.long	NUTTX_TEXT_VADDR			/* Virtual base address */
+.LCtextflags:
+#ifdef CONFIG_BOOT_RUNFROMFLASH
+	.long	MMU_ROMFLAGS				/* MMU flags text section in FLASH/ROM */
+#else
+	.long	MMU_MEMFLAGS				/* MMU flags for text section in RAM */
 #endif
+	.long	(NUTTX_TEXT_SIZE >> 20)		/* Number of 1MB read-execute sections */
+	.size	.LCtextinfo, . -.LCtextinfo
 
-#ifdef CONFIG_PAGING
+#ifdef CONFIG_BOOT_RUNFROMFLASH
+	/* Primary RAM region description.  The order of these fields must not change
+	 * because the values are loaded using ldmia:
+	 *
+	 * 1) The aligned, physical base address of the primary RAM section
+	 * 2) The aligned, virtual base address of the primary RAM section
+	 * 3) The MMU flags to use with the primary RAM space mapping
+	 * 4) The number of 1MB sections in the primary RAM region
+	 *
+	 * Values provided for NUTTX_RAM_* must all be properly aligned to 1MB
+	 * address boundaries
+	 */
 
-.Ltxtspan:
-	.long	PG_L1_TEXT_PADDR		/* Physical address in the L1 table */
-	.long	PG_L2_TEXT_PBASE		/* Physical address of the start of the L2 page table */
-	.long	PG_TEXT_NVPAGES			/* Total (virtual) text pages to be mapped */
-	.long	PG_L2_TEXT_NPAGE1		/* The number of text pages in the first page table */
-	.long	MMU_L1_TEXTFLAGS		/* L1 MMU flags to use */
+	.type	.LCraminfo, %object
+.LCraminfo:
+	.long	NUTTX_RAM_PADDR				/* Physical base address */
+	.long	NUTTX_RAM_VADDR				/* Virtual base address */
+	.long	MMU_MEMFLAGS				/* MMU flags for primary RAM section */
+	.long	(NUTTX_RAM_SIZE >> 20)		/* Number of 1MB read-execute sections */
+	.size	.LCraminfo, . -.LCraminfo
 
-.Ltxtmap:
-	.long	PG_L2_LOCKED_PADDR		/* Physical address in the L2 table */
-	.long	PG_LOCKED_PBASE			/* Physical address of locked base memory */
-	.long	CONFIG_PAGING_NLOCKED	/* Number of pages in the locked region */
-	.long	MMU_L2_TEXTFLAGS		/* L2 MMU flags to use */
+#endif /* CONFIG_BOOT_RUNFROMFLASH */
+#endif /* CONFIG_ARCH_ROMPGTABLE */
 
-.Lptabspan:
-	.long	PG_L1_PGTABLE_PADDR		/* Physical address in the L1 table */
-	.long	PG_L2_PGTABLE_PBASE		/* Physical address of the start of the L2 page table */
-	.long	PG_PGTABLE_NPAGES		/* Total mapped page table pages */
-	.long	PG_L2_PGTABLE_NPAGE1	/* The number of text pages in the first page table */
-	.long	MMU_L1_PGTABFLAGS		/* L1 MMU flags to use */
+	/* The virtual start address of the second phase boot logic */
 
-.Lptabmap:
-	.long	PG_L2_PGTABLE_PADDR		/* Physical address in the L2 table */
-	.long	PGTABLE_BASE_PADDR		/* Physical address of the page table memory */
-	.long	PG_PGTABLE_NPAGES		/* Total mapped page table pages */
-	.long	MMU_L2_PGTABFLAGS		/* L2 MMU flags to use */
+	.type	.LCvstart, %object
+.LCvstart:
+	.long	.Lvstart
+	.size	.LCvstart, . -.LCvstart
 
-#endif /* CONFIG_PAGING */
 	.size	__start, .-__start
 
 /****************************************************************************
@@ -569,73 +565,20 @@ __start:
 	.align	5
 	.local	.Lvstart
 	.type	.Lvstart, %function
+
 .Lvstart:
 
 	/* Remove the temporary mapping (if one was made).  The following assumes
 	 * that the total RAM size is > 1Mb and extends that initial mapping to
-	 * cover additinal RAM sections.
+	 * cover additional RAM sections.
 	 */
 
-
-#ifndef CONFIG_ARCH_ROMPGTABLE
-#ifndef CONFIG_IDENTITY_TEXTMAP
-	ldr		r4, .LCvpgtable			/* r4=virtual page table */
-	ldr		r1, .LCppgtable			/* r1=phys. page table */
-	mksection r3, r1				/* r2=phys. base addr */
+#if !defined(CONFIG_ARCH_ROMPGTABLE) && !defined(CONFIG_IDENTITY_TEXTMAP)
+	ldr		r5, .LCvpgtable			/* r5=Virtual page table base address */
+	ldr		r3, .LCptextbase		/* r0=Physical base address of .text section */
 	mov		r0, #0					/* flags + base = 0 */
-	str		r0, [r4, r3, lsr #18]	/* Undo identity mapping */
-#endif
-
-#if defined(CONFIG_PAGING)
-	/* Populate the L1 table for the data region */
-
-	adr		r0, .Ldataspan
-	ldmia	r0, {r0, r1, r2, r3, r4}
- 	pg_l1span r0, r1, r2, r3, r4, r5
-
-	/* Populate the L2 table for the data region */
-
-	adr		r0, .Ldatamap
-	ldmia	r0, {r0, r1, r2, r3}
- 	pg_l2map r0, r1, r2, r3, r4
-
-#elif defined(CONFIG_BOOT_RUNFROMFLASH)
-#  error "Logic not implemented"
-#else
-	/* Now setup the pagetables for our normal SDRAM mappings mapped region.
-	 * We round NUTTX_START_VADDR down to the nearest megabyte boundary.
-	 */
-
-	ldr		r1, .LCmmuflags			/* FLGS=MMU_MEMFLAGS */
-	add		r3, r3, r1				/* r3=flags + base */
-
-	add		r0, r4, #(NUTTX_START_VADDR & 0xff000000) >> 18
-	bic		r2, r3, #0x00f00000
-	str		r2, [r0]
-
-	add		r0, r0, #(NUTTX_START_VADDR & 0x00f00000) >> 18
-	str		r3, [r0], #4
-
-	/* Now map the remaining RX_NSECTIONS-1 sections of the executable
-	 * memory region.
-	 */
-
-	.rept	RX_NSECTIONS-1
-	add		r3, r3, #SECTION_SIZE
-	str		r3, [r0], #4
-	.endr
-
-	/* If we are executing from RAM with a fixed page configuration, then
-	 * we can assume that the above contiguous mapping included all of the
-	 * .text, .data, .bss, heap, etc. But if we are executing from FLASH,
-	 * then the RAM area is probably in a separate physical address region
-	 * and will require a separate mapping.  Or, if we are supporting on-demand
-	 * paging of the .text region, then the RAM-based .data/.bss/heap section
-	 * will still probably be located in a separate (virtual) address region.
-	 */
-
-#endif /* CONFIG_PAGING */
-#endif /* CONFIG_ARCH_ROMPGTABLE */
+	str		r3, [r5, r3, lsr #18]	/* identity mapping */
+#endif /* !CONFIG_ARCH_ROMPGTABLE && !CONFIG_IDENTITY_TEXTMAP */
 
 	/* Zero BSS and set up the stack pointer */
 
@@ -660,7 +603,7 @@ __start:
 	 * address region.
 	 */
 
-#if defined(CONFIG_BOOT_RUNFROMFLASH) || defined(CONFIG_PAGING)
+#if defined(CONFIG_BOOT_RUNFROMFLASH)
 	adr		r3, .Ldatainit
 	ldmia	r3, {r0, r1, r2}
 
@@ -689,33 +632,30 @@ __start:
 	 * end of memory.  See g_idle_topstack below.
 	 */
 
+#ifndef CONFIG_ARCH_ROMPGTABLE
+	/* The virtual base address of the page table */
+
+	.type	.LCvpgtable, %object
+.LCvpgtable:
+	.long	PGTABLE_BASE_VADDR		/* Virtual start of page table */
+	.size	.LCvpgtable, . -.LCvpgtable
+
+#endif /* CONFIG_ARCH_ROMPGTABLE */
+
+	.type	.Linitparms, %object
 .Linitparms:
 	.long	_sbss
 	.long	_ebss
 	.long	_ebss+CONFIG_IDLETHREAD_STACKSIZE-4
+	.size	.Linitparms, . -.Linitparms
 
-#ifdef CONFIG_PAGING
-
-.Ldataspan:
-	.long	PG_L1_DATA_VADDR	/* Virtual address in the L1 table */
-	.long	PG_L2_DATA_PBASE	/* Physical address of the start of the L2 page table */
-	.long	PG_DATA_NPAGES		/* Number of pages in the data region */
-	.long	PG_L2_DATA_NPAGE1	/* The number of text pages in the first page table */
-	.long	MMU_L1_DATAFLAGS	/* L1 MMU flags to use */
-
-.Ldatamap:
-	.long	PG_L2_DATA_VADDR	/* Virtual address in the L2 table */
-	.long	PG_DATA_PBASE		/* Physical address of data memory  */
-	.long	PG_DATA_NPAGES		/* Number of pages in the data region */
-	.long	MMU_L2_DATAFLAGS	/* L2 MMU flags to use */
-
-#endif /* CONFIG_PAGING */
-
-#if defined(CONFIG_BOOT_RUNFROMFLASH) || defined(CONFIG_PAGING)
+#if defined(CONFIG_BOOT_RUNFROMFLASH)
+	.type	.Ldatainit, %object
 .Ldatainit:
 	.long	_eronly			/* Where .data defaults are stored in FLASH */
 	.long	_sdata			/* Where .data needs to reside in SDRAM */
 	.long	_edata
+	.size	.Ldatainit, . -.Ldatainit
 #endif
 	.size	.Lvstart, .-.Lvstart
 
@@ -726,7 +666,7 @@ __start:
 	 * above.
 	 */
 
-	.data
+	.section	.rodata, "a"
 	.align	4
 	.globl	g_idle_topstack
 	.type	g_idle_topstack, object

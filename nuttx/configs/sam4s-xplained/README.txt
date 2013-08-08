@@ -402,13 +402,13 @@ SAM4S Xplained-specific Configuration Options
   CONFIG_ENDIAN_BIG - define if big endian (default is little
   endian)
 
-  CONFIG_DRAM_SIZE - Describes the installed DRAM (SRAM in this case):
+  CONFIG_RAM_SIZE - Describes the installed DRAM (SRAM in this case):
 
-    CONFIG_DRAM_SIZE=0x00008000 (32Kb)
+    CONFIG_RAM_SIZE=0x00008000 (32Kb)
 
-  CONFIG_DRAM_START - The start address of installed DRAM
+  CONFIG_RAM_START - The start address of installed DRAM
 
-    CONFIG_DRAM_START=0x20000000
+    CONFIG_RAM_START=0x20000000
 
   CONFIG_ARCH_IRQPRIO - The SAM4S supports interrupt prioritization
 
@@ -594,8 +594,8 @@ Configuration sub-directories
        for the on-board SRAM (1MB).
 
        System Type -> External Memory Configuration       
-         CONFIG_ARCH_EXTSRAM0=y              : Select SRAM on CS0
-         CONFIG_ARCH_EXTSRAM0SIZE=1048576    : Size=1MB
+         CONFIG_SAM34_EXTSRAM0=y              : Select SRAM on CS0
+         CONFIG_SAM34_EXTSRAM0SIZE=1048576    : Size=1MB
 
        Now what are you going to do with the SRAM.  There are two choices:
 
@@ -603,7 +603,7 @@ Configuration sub-directories
            external SRAM:
 
            System Type -> External Memory Configuration       
-             CONFIG_ARCH_EXTSRAM0HEAP=n      : Don't add to heap
+             CONFIG_SAM34_EXTSRAM0HEAP=n      : Don't add to heap
 
            Application Configuration -> System NSH Add-Ons
              CONFIG_SYSTEM_RAMTEST=y         : Enable the RAM test built-in
@@ -637,7 +637,7 @@ Configuration sub-directories
            configuration as follows:
 
            System Type -> External Memory Configuration       
-             CONFIG_ARCH_EXTSRAM0HEAP=y     : Add external RAM to heap
+             CONFIG_SAM34_EXTSRAM0HEAP=y     : Add external RAM to heap
 
            Memory Management
              -CONFIG_MM_REGIONS=1           : Only the internal SRAM
