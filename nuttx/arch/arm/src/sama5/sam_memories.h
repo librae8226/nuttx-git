@@ -1,5 +1,5 @@
 /****************************************************************************
- * config/sama5d3x-ek/src/sam_nsh.c
+ * arch/arm/src/sama5/sam_memories.h
  *
  *   Copyright (C) 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
@@ -33,124 +33,72 @@
  *
  ****************************************************************************/
 
+#ifndef __ARCH_ARM_SRC_SAMA5_SAM_MEMORIES_H
+#define __ARCH_ARM_SRC_SAMA5_SAM_MEMORIES_H
+
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <nuttx/config.h>
 
-#include <sys/mount.h>
-
-#include <stdbool.h>
-#include <stdio.h>
-#include <errno.h>
-#include <debug.h>
-
-#ifdef CONFIG_SAMA5_SPI0
-#  include <nuttx/spi/spi.h>
-#  include <nuttx/mtd.h>
-#  include <nuttx/fs/nxffs.h>
-
-#  include "sam_spi.h"
-#endif
-
-#include "sama5d3x-ek.h"
-
 /****************************************************************************
- * Pre-Processor Definitions
+ * Pre-processor Definitions
  ****************************************************************************/
 
-/* Configuration ************************************************************/
+/****************************************************************************
+ * Public Types
+ ****************************************************************************/
 
-/* Assign minor device numbers.  We basically ignore more of the NSH
- * configuration here (NSH SLOTNO ignored completely; NSH minor extended
- * to handle more devices.
- */
+/****************************************************************************
+ * Inline Functions
+ ****************************************************************************/
 
-#ifndef CONFIG_NSH_MMCSDMINOR
-#  define CONFIG_NSH_MMCSDMINOR 0
-#endif
+#ifndef __ASSEMBLY__
 
-#ifdef HAVE_HSMCI_MTD
+/****************************************************************************
+ * Public Data
+ ****************************************************************************/
 
-#  define HSMCI0_SLOTNO 0
-#  define HSMCI1_SLOTNO 1
-
-#  ifdef CONFIG_SAMA5_HSMCI0
-#     define HSMCI0_MINOR  CONFIG_NSH_MMCSDMINOR
-#     define HSMCI1_MINOR  (CONFIG_NSH_MMCSDMINOR+1)
-#     define AT25_MINOR    (CONFIG_NSH_MMCSDMINOR+2)
-#  else
-#     define HSMCI1_MINOR  CONFIG_NSH_MMCSDMINOR
-#     define AT25_MINOR    (CONFIG_NSH_MMCSDMINOR+1)
-#  endif
+#undef EXTERN
+#if defined(__cplusplus)
+#define EXTERN extern "C"
+extern "C"
+{
 #else
-#  define AT25_MINOR CONFIG_NSH_MMCSDMINOR
+#define EXTERN extern
 #endif
 
 /****************************************************************************
- * Public Functions
+ * Public Function Prototypes
  ****************************************************************************/
 
 /****************************************************************************
- * Name: nsh_archinitialize
+ * Name: sam_physregaddr
  *
  * Description:
- *   Perform architecture specific initialization
+ *   Give the virtual address of a register, return the physical address of
+ *   the register
  *
  ****************************************************************************/
 
-int nsh_archinitialize(void)
-{
-#if defined(HAVE_AT25_MTD) || defined(HAVE_HSMCI_MTD)
-  int ret;
-#endif
+uintptr_t sam_physregaddr(uintptr_t vregaddr);
 
-  /* Initialize the AT25 driver */
+/****************************************************************************
+ * Name: sam_physramaddr
+ *
+ * Description:
+ *   Give the virtual address of a RAM memory location, return the physical
+ *   address of that location.
+ *
+ ****************************************************************************/
 
-#ifdef HAVE_AT25_MTD
-  ret = sam_at25_initialize(AT25_MINOR);
-  if (ret < 0)
-    {
-      dbg("ERROR: sam_at25_initialize failed: %d\n", ret);
-      return ret;
-    }
-#endif
+uintptr_t sam_physramaddr(uintptr_t vregaddr);
 
-#ifdef HAVE_HSMCI_MTD
-#ifdef CONFIG_SAMA5_HSMCI0
-  ret = sam_hsmci_initialize(HSMCI0_SLOTNO, HSMCI0_MINOR);
-  if (ret < 0)
-    {
-      dbg("ERROR: sam_hsmci_initialize(%d,%d) failed: %d\n",
-          HSMCI0_SLOTNO, HSMCI0_MINOR, ret);
-      return ret;
-    }
-#endif
-
-#ifdef CONFIG_SAMA5_HSMCI1
-  ret = sam_hsmci_initialize(HSMCI1_SLOTNO, HSMCI1_MINOR);
-  if (ret < 0)
-    {
-      dbg("ERROR: sam_hsmci_initialize(%d,%d) failed: %d\n",
-          HSMCI1_SLOTNO, HSMCI1_MINOR, ret);
-      return ret;
-    }
-#endif
-#endif
-
-#if defined(CONFIG_SAMA5_OHCI) || defined(CONFIG_SAMA5_EHCI)
-  /* Initialize USB host operation.  sam_usbhost_initialize() starts a thread
-   * will monitor for USB connection and disconnection events.
-   */
-
-  ret = sam_usbhost_initialize();
-  if (ret != OK)
-    {
-      dbg("ERROR: Failed to initialize USB host: %d\n", ret);
-      return ret;
-    }
-#endif
-
-  return OK;
+#undef EXTERN
+#if defined(__cplusplus)
 }
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __ARCH_ARM_SRC_SAMA5_SAM_MEMORIES_H */

@@ -694,18 +694,18 @@ SAMA5D3x-EK Configuration Options
   Some subsystems can be configured to operate in different ways. The drivers
   need to know how to configure the subsystem.
 
-    CONFIG_SAMA5_PIOA_IRQ     - Support PIOA interrupts
-    CONFIG_SAMA5_PIOB_IRQ     - Support PIOB interrupts
-    CONFIG_SAMA5_PIOC_IRQ     - Support PIOD interrupts
-    CONFIG_SAMA5_PIOD_IRQ     - Support PIOD interrupts
-    CONFIG_SAMA5_PIOE_IRQ     - Support PIOE interrupts
+    CONFIG_SAMA5_PIOA_IRQ    - Support PIOA interrupts
+    CONFIG_SAMA5_PIOB_IRQ    - Support PIOB interrupts
+    CONFIG_SAMA5_PIOC_IRQ    - Support PIOD interrupts
+    CONFIG_SAMA5_PIOD_IRQ    - Support PIOD interrupts
+    CONFIG_SAMA5_PIOE_IRQ    - Support PIOE interrupts
 
     CONFIG_USART0_ISUART     - USART0 is configured as a UART
     CONFIG_USART1_ISUART     - USART1 is configured as a UART
     CONFIG_USART2_ISUART     - USART2 is configured as a UART
     CONFIG_USART3_ISUART     - USART3 is configured as a UART
 
-  ST91SAM4S specific device driver settings
+  ST91SAMA5 specific device driver settings
 
     CONFIG_U[S]ARTn_SERIAL_CONSOLE - selects the USARTn (n=0,1,2,3) or UART
            m (m=4,5) for the console and ttys0 (default is the USART1).
@@ -717,6 +717,34 @@ SAMA5D3x-EK Configuration Options
     CONFIG_U[S]ARTn_BITS - The number of bits.  Must be either 7 or 8.
     CONFIG_U[S]ARTn_PARTIY - 0=no parity, 1=odd parity, 2=even parity
     CONFIG_U[S]ARTn_2STOP - Two stop bits
+
+  AT91SAMA5 USB Host Configuration
+  Pre-requisites
+
+    CONFIG_USBDEV          - Enable USB device support
+    CONFIG_USBHOST         - Enable USB host support
+    CONFIG_SAMA5_UHPHS     - Needed
+    CONFIG_SAMA5_OHCI      - Enable the STM32 USB OTG FS block
+    CONFIG_SCHED_WORKQUEUE - Worker thread support is required
+
+  Options:
+
+    CONFIG_SAMA5_OHCI_NEDS
+      Number of endpoint descriptors
+    CONFIG_SAMA5_OHCI_NTDS
+      Number of transfer descriptors
+    CONFIG_SAMA5_OHCI_TDBUFFERS
+      Number of transfer descriptor buffers
+    CONFIG_SAMA5_OHCI_TDBUFSIZE
+      Size of one transfer descriptor buffer
+    CONFIG_USBHOST_INT_DISABLE
+      Disable interrupt endpoint support
+    CONFIG_USBHOST_ISOC_DISABLE
+      Disable isochronous endpoint support
+    CONFIG_USBHOST_BULK_DISABLE
+      Disable bulk endpoint support
+
+config SAMA5_OHCI_REGDEBUG
 
 Configurations
 ==============
@@ -987,6 +1015,16 @@ Configurations
          CONFIG_SAMA5_AT25_AUTOMOUNT=y         : Mounts AT25 for NSH
          CONFIG_SAMA5_AT25_FTL=y               : Create block driver for FAT
 
+       The SPI driver can be built to do polled or DMA SPI data transfers.
+       The following additional changes will enable SPI DMA:
+
+       System Type -> SAMA5 Peripheral Support
+         CONFIG_SAMA5_DMAC0=y                   : Enable DMA controller 0
+
+       System Type -> SPI device driver options
+         CONFIG_SAMA5_SPI_DMA=y                 : Use DMA for SPI transfers
+         CONFIG_SAMA5_SPI_DMATHRESHOLD=4        : Don't DMA for small transfers
+
        NOTE that you must close JP1 on the Embest/Ronetix board in
        order to enable the AT25 FLASH chip select.
 
@@ -1017,10 +1055,11 @@ Configurations
          CONFIG_SAMA5_DMAC0=y                  : DMAC0 is needed by HSMCI0
          CONFIG_SAMA5_DMAC1=y                  : DMAC1 is needed by HSMCI1
 
+       System Type
          CONFIG_SAMA5_PIO_IRQ=y                : PIO interrupts needed
          CONFIG_SAMA5_PIOD_IRQ=y               : Card detect pins are on PIOD
 
-       Device Drivers ->
+       Device Drivers -> MMC/SD Driver Support
          CONFIG_MMCSD=y                        : Enable MMC/SD support
          CONFIG_MMSCD_NSLOTS=1                 : One slot per driver instance
          CONFIG_MMCSD_HAVECARDDETECT=y         : Supports card-detect PIOs
@@ -1033,6 +1072,64 @@ Configurations
 
        Application Configuration -> NSH Library
          CONFIG_NSH_ARCHINIT=y                 : NSH board-initialization
+
+       Using the SD card:
+
+       1) If you try mounting an SD card with nothing in the slot, the
+          mount will fail:
+
+            nsh> mount -t vfat /dev/mmcsd1 /mnt/sd1
+            nsh: mount: mount failed: 19
+
+          NSH can be configured to provide errors as strings instead of
+          numbers.  But in this case, only the error number is reported.
+          The  error numbers can be found in nuttx/include/errno.h:
+
+            #define ENODEV              19
+            #define ENODEV_STR          "No such device"
+
+          So the mount command is saying that there is no device or, more
+          correctly, that there is no card in the SD card slot.
+
+        2) Inserted the SD card.  Then the mount should succeed.
+
+            nsh> mount -t vfat /dev/mmcsd1 /mnt/sd1
+            nsh> ls /mnt/sd1
+            /mnt/sd1:
+             atest.txt
+            nsh> cat /mnt/sd1/atest.txt
+            This is a test
+
+        3) Before removing the card, you must umount the file system.  This
+           is equivalent to "ejecting" or "safely removing" the card on
+           Windows:  It flushes any cached data to the card and makes the SD
+           card unavailable to the applications.
+
+             nsh> mount -t vfat /dev/mmcsd1 /mnt/sd1
+
+          It is now safe to remove the card.  NuttX provides into callbacks
+          that can be used by an application to automatically unmount the
+          volume when it is removed.  But those callbacks are not used in
+          this configuration.
+
+    10) Support the USB full-speed OHCI host driver can be enabled by change
+        the NuttX configuration file as follows:
+
+        System Type -> ATSAMA5 Peripheral Support
+          CONFIG_SAMA5_UHPHS=y                 : USB Host High Speed
+
+        System Type -> USB High Speed Host driver options
+          CONFIG_SAMA5_OHCI=y                  : Full-speed OHCI support
+                                               : Defaults for values probably OK
+        Device Drivers
+          CONFIG_USBHOST=y                     : Enable USB host support
+
+        Device Drivers -> USB Host Driver Support
+          CONFIG_USBHOST_ISOC_DISABLE=y        : Isochronous endpoints not used
+          CONFIG_USBHOST_MSC=y                 : Enable the mass storage class driver
+
+        Library Routines
+          CONFIG_SCHED_WORKQUEUE               : Worker thread support is required
 
     STATUS:
       2013-7-19:  This configuration (as do the others) run at 396MHz.
@@ -1052,11 +1149,11 @@ Configurations
 
       2013-7-31:  Using delay loop calibration from the hello configuration.
         That configuration runs out of internal SRAM and, as a result, this
-        configuration needs to be recalibrated.
+        configuration should be recalibrated.
 
       2013-8-3:  SDRAM configuration and RAM test usage have been verified
-        and are functional.  I not some issues now; Occassionally, SDRAM is
-        not functional on initial boot.  Or is initially not functional but
+        and are functional.  I note some issues; occassionally, SDRAM is
+        not functional on initial boot or is initially not functional but
         improves with accesses.  Clearly, more work needs to be done.
 
         Here is another strange observation:  SDRAM accesses tend to
@@ -1064,6 +1161,25 @@ Configurations
         where the memory test fails!  No idea why.
 
       2013-8-5:  The AT25 configuration has been verified to be functional.
+      2013-8-9:  The AT25 configuration has been verified with DMA
+        enabled.
+
+      2013-8-10: Basic HSCMI1 functionality (with DMA) has been verified.
+        Most testing is needed to assure that this is a stable solution.
+      2013-8-11: HSMCI0 is more finicky.  Usually there is no card
+        communcation and I get timeouts.  But if I remove and re-insert the
+        card it few times, sometimes communication is successfully and the
+        card behaves normally.  I suspected an electro-mechanical issue but
+        but now think there is more to the problem than that.
+      2013-8-11: I see another problem doing card insertion and card removal
+        testing.  When there is a lot of debug output, the system locks up.
+        I have traced to this the debug output itself.  The debug output
+        from the device driver interferes with normal serial port operation
+        and prevents NSH from receiving data.  There is no issue when the
+        debug output is suppressed and card insertial and removal works as
+        expected (at least on the HSMCI1 microSD slot).
+
+      2013-8-11: Added OHCI configuration.  Untested!
 
   ostest:
     This configuration directory, performs a simple OS test using
@@ -1121,7 +1237,7 @@ Configurations
         configuration to start the program in NOR FLASH (see just above).
         See "Creating and Using NORBOOT" above.
 
-       2013-7-31:  The OS test configuration is basically functional, but
+      2013-7-31:  The OS test configuration is basically functional, but
          takes a very long time in the round-robin scheduler test computing
          prime numbers.  This test is supposed to be slow -- like several
          seconds -- but not many minutes.  No idea why yet.  The best guess

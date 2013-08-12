@@ -665,6 +665,7 @@ config STM32_SDIO
 	bool "SDIO"
 	default n
 	depends on !STM32_CONNECTIVITYLINE && !STM32_VALUELINE
+	select ARCH_HAVE_SDIO
 
 config STM32_SPI1
 	bool "SPI1"
@@ -2472,6 +2473,20 @@ config SERIAL_TERMIOS
 		If this is not defined, then the terminal settings (baud, parity, etc).
 		are not configurable at runtime; serial streams cannot be flushed, etc..
 
+config SERIAL_DISABLE_REORDERING
+	bool "Disable reordering of ttySx devices."
+	depends on STM32_USART1 || STM32_USART2 || STM32_USART3 || STM32_UART4 || STM32_UART5 || STM32_USART6 || STM32_USART7 || STM32_USART8
+	default n
+	---help---
+		NuttX per default reorders the serial ports (/dev/ttySx) so that the
+		console is always on /dev/ttyS0. If more than one UART is in use this
+		can, however, have the side-effect that all port mappings
+		(hardware USART1 -> /dev/ttyS0) change if the console is moved to another
+		UART. This is in particular relevant if a project uses the USB console
+		in some configs and a serial console in other configs, but does not
+		want the side effect of having all serial port names change when just
+		the console is moved from serial to USB.
+
 endmenu
 
 config STM32_USART_SINGLEWIRE
@@ -2569,6 +2584,21 @@ config SDIO_WIDTH_D1_ONLY
 	default n
 	---help---
 		Select 1-bit transfer mode.  Default: 4-bit transfer mode.
+
+endmenu
+
+menu "CAN Configuration"
+	depends on STM32_CAN
+
+config CAN1_BAUD
+	int "Baud rate for CAN1"
+	default 250000
+	depends on STM32_CAN1
+
+config CAN2_BAUD
+	int "Baud rate for CAN2"
+	default 250000
+	depends on STM32_CAN2
 
 endmenu
 
@@ -2853,4 +2883,3 @@ config STM32_USB_ITRMP
 		either retain the legacy F1 behavior or to map the USB interupts to
 		there own dedicated vectors.  The option is available only for the
 		F3 family and selects the use of the dedicated USB interrupts.
-

@@ -1,8 +1,7 @@
 /************************************************************************************
- * configs/shenzhou/src/up_usbdev.c
- * arch/arm/src/board/up_boot.c
+ * configs/sama5d3x-ek/src/up_usbdev.c
  *
- *   Copyright (C) 2012-2013 Gregory Nutt. All rights reserved.
+ *   Copyright (C) 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -45,6 +44,7 @@
 #include <stdbool.h>
 #include <sched.h>
 #include <errno.h>
+#include <assert.h>
 #include <debug.h>
 
 #include <nuttx/usb/usbdev.h>
@@ -52,22 +52,14 @@
 #include <nuttx/usb/usbdev_trace.h>
 
 #include "up_arch.h"
-#include "stm32.h"
-#include "stm32_otgfs.h"
-#include "shenshou-internal.h"
+#include "sam_ohci.h"
+#include "sama5d3x-ek.h"
 
-#ifdef CONFIG_STM32_OTGFS
+#if defined(CONFIG_SAMA5_UHPHS) || defined(CONFIG_SAMA5_UDPHS)
 
 /************************************************************************************
  * Pre-processor Definitions
  ************************************************************************************/
-
-#if defined(CONFIG_USBDEV) || defined(CONFIG_USBHOST)
-#  define HAVE_USB 1
-#else
-#  warning "CONFIG_STM32_OTGFS is enabled but neither CONFIG_USBDEV nor CONFIG_USBHOST"
-#  undef HAVE_USB
-#endif
 
 #ifndef CONFIG_USBHOST_DEFPRIO
 #  define CONFIG_USBHOST_DEFPRIO 50
@@ -81,7 +73,7 @@
  * Private Data
  ************************************************************************************/
 
-#ifdef CONFIG_USBHOST
+#if defined(CONFIG_SAMA5_OHCI) || defined(CONFIG_SAMA5_EHCI)
 static struct usbhost_driver_s *g_drvr;
 #endif
 
@@ -101,15 +93,13 @@ static struct usbhost_driver_s *g_drvr;
 static int usbhost_waiter(int argc, char *argv[])
 {
   bool connected = false;
-  int ret;
 
   uvdbg("Running\n");
   for (;;)
     {
       /* Wait for the device to change state */
 
-      ret = DRVR_WAIT(g_drvr, connected);
-      DEBUGASSERT(ret == OK);
+      DEBUGVERIFY(DRVR_WAIT(g_drvr, connected) == OK);
 
       connected = !connected;
       uvdbg("%s\n", connected ? "connected" : "disconnected");
@@ -135,29 +125,23 @@ static int usbhost_waiter(int argc, char *argv[])
  ************************************************************************************/
 
 /************************************************************************************
- * Name: stm32_usbinitialize
+ * Name: sam_usbinitialize
  *
  * Description:
- *   Called from stm32_usbinitialize very early in inialization to setup USB-related
- *   GPIO pins for the STM3240G-EVAL board.
+ *   Called from sam_usbinitialize very early in inialization to setup USB-related
+ *   GPIO pins for the STM32F4Discovery board.
  *
  ************************************************************************************/
 
-void stm32_usbinitialize(void)
+void weak_function sam_usbinitialize(void)
 {
-  /* The OTG FS has an internal soft pull-up.  No GPIO configuration is required */
+  /* Configure pull-ups */
 
-  /* Configure the OTG FS VBUS sensing GPIO, Power On, and Overcurrent GPIOs */
-
-#ifdef CONFIG_STM32_OTGFS
-  stm32_configgpio(GPIO_OTGFS_VBUS);
-  stm32_configgpio(GPIO_OTGFS_PWRON);
-  stm32_configgpio(GPIO_OTGFS_OVER);
-#endif
+  /* Configure the OTG FS VBUS sensing GPIO, Power On, and Overcurrent PIOs */
 }
 
 /***********************************************************************************
- * Name: stm32_usbhost_initialize
+ * Name: sam_usbhost_initialize
  *
  * Description:
  *   Called at application startup time to initialize the USB host functionality.
@@ -166,8 +150,8 @@ void stm32_usbinitialize(void)
  *
  ***********************************************************************************/
 
-#ifdef CONFIG_USBHOST
-int stm32_usbhost_initialize(void)
+#if defined(CONFIG_SAMA5_OHCI) || defined(CONFIG_SAMA5_EHCI)
+int sam_usbhost_initialize(void)
 {
   int pid;
   int ret;
@@ -186,7 +170,7 @@ int stm32_usbhost_initialize(void)
   /* Then get an instance of the USB host interface */
 
   uvdbg("Initialize USB host\n");
-  g_drvr = stm32_otgfshost_initialize(0);
+  g_drvr = sam_ohci_initialize(0);
   if (g_drvr)
     {
       /* Start a thread to handle device connection. */
@@ -204,7 +188,7 @@ int stm32_usbhost_initialize(void)
 #endif
 
 /***********************************************************************************
- * Name: stm32_usbhost_vbusdrive
+ * Name: sam_usbhost_vbusdrive
  *
  * Description:
  *   Enable/disable driving of VBUS 5V output.  This function must be provided be
@@ -229,28 +213,24 @@ int stm32_usbhost_initialize(void)
  *
  ***********************************************************************************/
 
-#ifdef CONFIG_USBHOST
-void stm32_usbhost_vbusdrive(int iface, bool enable)
+#if defined(CONFIG_SAMA5_OHCI) || defined(CONFIG_SAMA5_EHCI)
+void sam_usbhost_vbusdrive(int iface, bool enable)
 {
   DEBUGASSERT(iface == 0);
   
   if (enable)
     {
       /* Enable the Power Switch by driving the enable pin low */
-
-      stm32_gpiowrite(GPIO_OTGFS_PWRON, false);
     }
   else
     { 
       /* Disable the Power Switch by driving the enable pin high */
- 
-      stm32_gpiowrite(GPIO_OTGFS_PWRON, true);
     }
 }
 #endif
 
 /************************************************************************************
- * Name: stm32_setup_overcurrent
+ * Name: sam_setup_overcurrent
  *
  * Description:
  *   Setup to receive an interrupt-level callback if an overcurrent condition is
@@ -264,18 +244,18 @@ void stm32_usbhost_vbusdrive(int iface, bool enable)
  *
  ************************************************************************************/
 
-#ifdef CONFIG_USBHOST
-xcpt_t stm32_setup_overcurrent(xcpt_t handler)
+#if defined(CONFIG_SAMA5_OHCI) || defined(CONFIG_SAMA5_EHCI)
+xcpt_t sam_setup_overcurrent(xcpt_t handler)
 {
   return NULL;
 }
 #endif
 
 /************************************************************************************
- * Name:  stm32_usbsuspend
+ * Name:  sam_usbsuspend
  *
  * Description:
- *   Board logic must provide the stm32_usbsuspend logic if the USBDEV driver is
+ *   Board logic must provide the sam_usbsuspend logic if the USBDEV driver is
  *   used.  This function is called whenever the USB enters or leaves suspend mode.
  *   This is an opportunity for the board logic to shutdown clocks, power, etc.
  *   while the USB is suspended.
@@ -283,13 +263,10 @@ xcpt_t stm32_setup_overcurrent(xcpt_t handler)
  ************************************************************************************/
 
 #ifdef CONFIG_USBDEV
-void stm32_usbsuspend(FAR struct usbdev_s *dev, bool resume)
+void sam_usbsuspend(FAR struct usbdev_s *dev, bool resume)
 {
   ulldbg("resume: %d\n", resume);
 }
 #endif
 
-#endif /* CONFIG_STM32_OTGFS */
-
-
-
+#endif /* CONFIG_SAMA5_UHPHS || CONFIG_SAMA5_UDPHS*/
