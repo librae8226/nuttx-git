@@ -16,13 +16,11 @@ choice
 
 config LEACH_NORMAL
 	bool "Select leach normal version"
-	default y
 	---help---
 		This version is the normal leach board.
 
 config LEACH_MINI
 	bool "Select leach mini version"
-	default n
 	---help---
 		This version is a mini layout of the normal one.
 		It has different bootloader, memory size, and pin layout.
