@@ -61,8 +61,10 @@
 #include "up_arch.h"
 #include "up_internal.h"
 
+#include "cache.h"
 #include "chip.h"
 #include "sam_periphclks.h"
+#include "sam_memories.h"
 #include "sam_usbhost.h"
 #include "chip/sam_pmc.h"
 #include "chip/sam_sfr.h"
@@ -73,14 +75,6 @@
  *******************************************************************************/
 /* Configuration ***************************************************************/
 
-/* Fixed endpoint descriptor size.  The actual size required by the hardware is only
- * 16 bytes, however, we set aside an additional 16 bytes for for internal use by
- * the OHCI host driver.  16-bytes is set aside because the EDs must still be
- * aligned to 16-byte boundaries.
- */
-
-#define SAM_ED_SIZE 32
-
 /* Configurable number of user endpoint descriptors (EDs).  This number excludes
  * the control endpoint that is always allocated.
  */
@@ -88,14 +82,6 @@
 #ifndef CONFIG_SAMA5_OHCI_NEDS
 #  define CONFIG_SAMA5_OHCI_NEDS 2
 #endif
-
-/* Fixed transfer descriptor size.  The actual size required by the hardware is
- * only 16 bytes, however, we set aside an additional 16 bytes for for internal
- * use by the OHCI host driver.  16-bytes is set aside because the TDs must still
- * be aligned to 16-byte boundaries.
- */
-
-#define SAM_TD_SIZE 32
 
 /* Configurable number of user transfer descriptors (TDs).  */
 
@@ -138,7 +124,10 @@
 #endif
 
 /* OHCI Setup ******************************************************************/
-/* Frame Interval / Periodic Start */
+/* Frame Interval / Periodic Start.
+ *
+ * At 12Mbps, there are 12000 bit time in each 1Msec frame.
+ */
 
 #define BITS_PER_FRAME          12000
 #define FI                     (BITS_PER_FRAME-1)
@@ -168,14 +157,35 @@
 #define MAX_PERINTERVAL 32
 
 /* Descriptors *****************************************************************/
+/* Actual number of allocated EDs and TDs will include one for the control ED
+ * and one for the tail ED for each RHPort:
+ */
+
+#define SAMA5_OHCI_NEDS       (CONFIG_SAMA5_OHCI_NEDS + SAM_USBHOST_NRHPORT)
+#define SAMA5_OHCI_NTDS       (CONFIG_SAMA5_OHCI_NTDS + SAM_USBHOST_NRHPORT)
 
 /* TD delay interrupt value */
 
-#define TD_DELAY(n) (uint32_t)((n) << GTD_STATUS_DI_SHIFT)
+#define TD_DELAY(n)           (uint32_t)((n) << GTD_STATUS_DI_SHIFT)
 
 /*******************************************************************************
  * Private Types
  *******************************************************************************/
+/* This structure contains one endpoint list.  The main reason for the existence
+ * of this structure is to contain the sem_t value associated with the ED.  It
+ * doesn't work well within the ED itself because then the semaphore counter
+ * is subject to DMA cache operations (invalidate a modified semaphore count
+ * is fatal!).
+ */
+
+struct sam_eplist_s
+{
+  volatile bool    wdhwait;    /* TRUE: Thread is waiting for WDH interrupt */
+  sem_t            wdhsem;     /* Semaphore used to wait for Writeback Done Head event */
+  struct sam_ed_s  *ed;        /* Endpoint descriptor (ED) */
+  struct sam_gtd_s *tail;      /* Tail transfer descriptor (TD) */
+};
+
 /* This structure retins the state of one root hub port */
 
 struct sam_rhport_s
@@ -189,29 +199,32 @@ struct sam_rhport_s
 
   /* Root hub port status */
 
-  volatile bool connected;      /* Connected to device */
-  volatile bool lowspeed;       /* Low speed device attached. */
-  uint8_t       rhpndx;         /* Root hub port index */
+  volatile bool connected;     /* Connected to device */
+  volatile bool lowspeed;      /* Low speed device attached. */
+  uint8_t rhpndx;              /* Root hub port index */
+  bool ep0init;                /* True:  EP0 initialized */
+
+  struct sam_eplist_s ep0;     /* EP0 endpoint list */
 
   /* The bound device class driver */
 
   struct usbhost_class_s *class;
 };
 
-/* This structure retains the state of the USB host controller */
+/* This structure retains the overall state of the USB host controller */
 
 struct sam_ohci_s
 {
   /* Driver status */
 
-  volatile bool rhswait;        /* TRUE: Thread is waiting for Root Hub Status change */
+  volatile bool rhswait;       /* TRUE: Thread is waiting for Root Hub Status change */
 
 #ifndef CONFIG_USBHOST_INT_DISABLE
-  uint8_t ininterval;           /* Minimum periodic IN EP polling interval: 2, 4, 6, 16, or 32 */
-  uint8_t outinterval;          /* Minimum periodic IN EP polling interval: 2, 4, 6, 16, or 32 */
+  uint8_t ininterval;          /* Minimum periodic IN EP polling interval: 2, 4, 6, 16, or 32 */
+  uint8_t outinterval;         /* Minimum periodic IN EP polling interval: 2, 4, 6, 16, or 32 */
 #endif
-  sem_t exclsem;                /* Support mutually exclusive access */
-  sem_t rhssem;                 /* Semaphore to wait Writeback Done Head event */
+  sem_t exclsem;               /* Support mutually exclusive access */
+  sem_t rhssem;                /* Semaphore to wait Writeback Done Head event */
 
   /* Root hub ports */
 
@@ -219,26 +232,29 @@ struct sam_ohci_s
 };
 
 /* The OCHI expects the size of an endpoint descriptor to be 16 bytes.
- * However, the size allocated for an endpoint descriptor is 32 bytes in
- * sam_ohciram.h.  This extra 16-bytes is used by the OHCI host driver in
- * order to maintain additional endpoint-specific data.
+ * However, the size allocated for an endpoint descriptor is 32 bytes.  This
+ * is necessary first because the Cortex-A5 cache line size is 32 bytes and
+ * tht is the smallest amount of memory that we can perform cache operations
+ * on.  The  16-bytes is also used by the OHCI host driver in order to maintain
+ * additional endpoint-specific data.
  */
 
 struct sam_ed_s
 {
   /* Hardware specific fields */
 
-  struct ohci_ed_s hw;
+  struct ohci_ed_s hw;         /* 0-15 */
 
   /* Software specific fields */
 
-  uint8_t          xfrtype;   /* Transfer type.  See SB_EP_ATTR_XFER_* in usb.h */
-  uint8_t          interval;  /* Periodic EP polling interval: 2, 4, 6, 16, or 32 */
-  volatile uint8_t tdstatus;  /* TD control status bits from last Writeback Done Head event */
-  volatile bool    wdhwait;   /* TRUE: Thread is waiting for WDH interrupt */
-  sem_t            wdhsem;    /* Semaphore used to wait for Writeback Done Head event */
-                              /* Unused bytes follow, depending on the size of sem_t */
+  struct sam_eplist_s *eplist; /* 16-19: List structure associated with the ED */
+  uint8_t          xfrtype;    /* 20: Transfer type.  See SB_EP_ATTR_XFER_* in usb.h */
+  uint8_t          interval;   /* 21: Periodic EP polling interval: 2, 4, 6, 16, or 32 */
+  volatile uint8_t tdstatus;   /* 22: TD control status bits from last Writeback Done Head event */
+  uint8_t          pad[9];     /* 23-31: Pad to 32-bytes */
 };
+
+#define SIZEOF_SAM_ED_S 32
 
 /* The OCHI expects the size of an transfer descriptor to be 16 bytes.
  * However, the size allocated for an endpoint descriptor is 32 bytes in
@@ -250,21 +266,22 @@ struct sam_gtd_s
 {
   /* Hardware specific fields */
 
-  struct ohci_gtd_s hw;
+  struct ohci_gtd_s hw;        /* 0-15 */
 
   /* Software specific fields */
 
-  struct sam_ed_s *ed;       /* Pointer to parent ED */
-  bool             prealloc; /* Indicates a pre-allocated ED */
-  uint8_t          pad[11];
+  struct sam_ed_s *ed;         /* 16-19: Pointer to parent ED */
+  uint8_t          pad[12];    /* 20-31: Pad to 32 bytes */
 };
+
+#define SIZEOF_SAM_TD_S 32
 
 /* The following is used to manage lists of free EDs, TDs, and TD buffers */
 
 struct sam_list_s
 {
-  struct sam_list_s *flink; /* Link to next buffer in the list */
-                            /* Variable length buffer data follows */
+  struct sam_list_s *flink;    /* Link to next buffer in the list */
+                               /* Variable length buffer data follows */
 };
 
 /*******************************************************************************
@@ -297,7 +314,8 @@ static void sam_putle16(uint8_t *dest, uint16_t val);
 
 /* OHCI memory pool helper functions *******************************************/
 
-static inline void sam_edfree(struct sam_ed_s *ed);
+static struct sam_ed_s *sam_edalloc(void);
+static void sam_edfree(struct sam_ed_s *ed);
 static struct sam_gtd_s *sam_tdalloc(void);
 static void sam_tdfree(struct sam_gtd_s *buffer);
 static uint8_t *sam_tballoc(void);
@@ -323,12 +341,14 @@ static inline int sam_remisoced(struct sam_ed_s *ed);
 
 /* Descriptor helper functions *************************************************/
 
-static int sam_enqueuetd(struct sam_rhport_s *rhport, struct sam_ed_s *ed,
-                         uint32_t dirpid, uint32_t toggle,
-                         volatile uint8_t *buffer, size_t buflen);
-static int sam_wdhwait(struct sam_rhport_s *rhport, struct sam_ed_s *ed);
-static int sam_ctrltd(struct sam_rhport_s *rhport, uint32_t dirpid,
-                      uint8_t *buffer, size_t buflen);
+static int  sam_enqueuetd(struct sam_rhport_s *rhport, struct sam_ed_s *ed,
+                          uint32_t dirpid, uint32_t toggle,
+                          volatile uint8_t *buffer, size_t buflen);
+static int  sam_ep0enqueue(struct sam_rhport_s *rhport);
+static void sam_ep0dequeue(struct sam_rhport_s *rhport);
+static int  sam_wdhwait(struct sam_rhport_s *rhport, struct sam_ed_s *ed);
+static int  sam_ctrltd(struct sam_rhport_s *rhport, uint32_t dirpid,
+                       uint8_t *buffer, size_t buflen);
 
 /* Interrupt handling **********************************************************/
 
@@ -363,10 +383,6 @@ static int sam_transfer(FAR struct usbhost_driver_s *drvr, usbhost_ep_t ep,
                         FAR uint8_t *buffer, size_t buflen);
 static void sam_disconnect(FAR struct usbhost_driver_s *drvr);
 
-/* Initialization **************************************************************/
-
-static inline void sam_ep0init(void);
-
 /*******************************************************************************
  * Private Data
  *******************************************************************************/
@@ -397,20 +413,14 @@ static struct sam_list_s *g_tbfree; /* List of unused transfer buffers */
 static struct ohci_hcca_s g_hcca
                           __attribute__ ((aligned (256)));
 
-/* These must be aligned to 8-byte boundaries (we do 16-byte alignment). */
-
-static struct sam_gtd_s   g_tdtail[SAM_USBHOST_NRHPORT]
-                          __attribute__ ((aligned (16)));
-static struct sam_ed_s    g_edctrl[SAM_USBHOST_NRHPORT]
-                          __attribute__ ((aligned (16)));
-
 /* Pools of free descriptors and buffers.  These will all be linked
- * into the free lists declared above.
+ * into the free lists declared above.  These must be aligned to 8-byte
+ * boundaries (we do 16-byte alignment).
  */
 
-static struct sam_ed_s    g_edalloc[CONFIG_SAMA5_OHCI_NEDS]
+static struct sam_ed_s    g_edalloc[SAMA5_OHCI_NEDS]
                           __attribute__ ((aligned (16)));
-static struct sam_gtd_s   g_tdalloc[CONFIG_SAMA5_OHCI_NTDS]
+static struct sam_gtd_s   g_tdalloc[SAMA5_OHCI_NTDS]
                           __attribute__ ((aligned (16)));
 static uint8_t            g_bufalloc[SAM_BUFALLOC]
                           __attribute__ ((aligned (16)));
@@ -598,6 +608,29 @@ static void sam_putle16(uint8_t *dest, uint16_t val)
 #endif
 
 /*******************************************************************************
+ * Name: sam_edalloc
+ *
+ * Description:
+ *   Return an endpoint descriptor to the free list
+ *
+ *******************************************************************************/
+
+static struct sam_ed_s *sam_edalloc(void)
+{
+  struct sam_ed_s *ed;
+
+  /* Remove the ED from the freelist */
+
+  ed = (struct sam_ed_s *)g_edfree;
+  if (ed)
+    {
+      g_edfree = ((struct sam_list_s*)ed)->flink;
+    }
+
+  return ed;
+}
+
+/*******************************************************************************
  * Name: sam_edfree
  *
  * Description:
@@ -664,16 +697,10 @@ static struct sam_gtd_s *sam_tdalloc(void)
 static void sam_tdfree(struct sam_gtd_s *td)
 {
   struct sam_list_s *tdfree = (struct sam_list_s *)td;
+  DEBUGASSERT(td);
 
-  /* This should not happen but just to be safe, don't free the common, pre-
-   * allocated tail TD.
-   */
-
- if (tdfree != NULL && !td->prealloc)
-    {
-      tdfree->flink           = g_tdfree;
-      g_tdfree                = tdfree;
-    }
+  tdfree->flink = g_tdfree;
+  g_tdfree      = tdfree;
 }
 
 /*******************************************************************************
@@ -729,21 +756,33 @@ static void sam_tbfree(uint8_t *buffer)
 static inline int sam_addbulked(struct sam_ed_s *ed)
 {
 #ifndef CONFIG_USBHOST_BULK_DISABLE
+  irqstate_t flags;
   uint32_t regval;
+  uintptr_t physed;
+
+  /* Disable bulk list processing while we modify the list */
+
+  flags   = irqsave();
+  regval  = sam_getreg(SAM_USBHOST_CTRL);
+  regval &= ~OHCI_CTRL_BLE;
+  sam_putreg(regval, SAM_USBHOST_CTRL);
 
   /* Add the new bulk ED to the head of the bulk list */
 
   ed->hw.nexted = sam_getreg(SAM_USBHOST_BULKHEADED);
-  sam_putreg((uint32_t)ed, SAM_USBHOST_BULKHEADED);
+  cp15_coherent_dcache((uintptr_t)ed,
+                       (uintptr_t)ed + sizeof(struct ohci_ed_s) - 1);
 
-  /* BulkListEnable. This bit is set to enable the processing of the
-   * Bulk list.  Note: once enabled, it remains.  We really should
-   * never modify the bulk list while BLE is set.
-   */
+  physed = sam_physramaddr((uintptr_t)ed);
+  sam_putreg((uint32_t)physed, SAM_USBHOST_BULKHEADED);
+
+  /* Re-enable bulk list processing. */
 
   regval  = sam_getreg(SAM_USBHOST_CTRL);
   regval |= OHCI_CTRL_BLE;
   sam_putreg(regval, SAM_USBHOST_CTRL);
+
+  irqrestore(flags);
   return OK;
 #else
   return -ENOSYS;
@@ -763,14 +802,23 @@ static inline int sam_rembulked(struct sam_ed_s *ed)
 #ifndef CONFIG_USBHOST_BULK_DISABLE
   struct sam_ed_s *curr;
   struct sam_ed_s *prev;
-  uint32_t         regval;
+  irqstate_t flags;
+  uintptr_t physed;
+  uint32_t regval;
+
+  /* Disable bulk list processing while we modify the list */
+
+  flags = irqsave();
+  regval  = sam_getreg(SAM_USBHOST_CTRL);
+  regval &= ~OHCI_CTRL_BLE;
+  sam_putreg(regval, SAM_USBHOST_CTRL);
 
   /* Find the ED in the bulk list.  NOTE: We really should never be mucking
    * with the bulk list while BLE is set.
    */
 
-  for (curr = (struct sam_ed_s *)sam_getreg(SAM_USBHOST_BULKHEADED),
-       prev = NULL;
+  physed = sam_getreg(SAM_USBHOST_BULKHEADED);
+  for (curr = (struct sam_ed_s *)sam_virtramaddr(physed), prev = NULL;
        curr && curr != ed;
        prev = curr, curr = (struct sam_ed_s *)curr->hw.nexted);
 
@@ -789,12 +837,6 @@ static inline int sam_rembulked(struct sam_ed_s *ed)
           /* Yes... set the head of the bulk list to skip over this ED */
 
           sam_putreg(ed->hw.nexted, SAM_USBHOST_BULKHEADED);
-
-          /* If the bulk list is now empty, then disable it */
-
-          regval  = sam_getreg(SAM_USBHOST_CTRL);
-          regval &= ~OHCI_CTRL_BLE;
-          sam_putreg(regval, SAM_USBHOST_CTRL);
         }
       else
         {
@@ -803,9 +845,25 @@ static inline int sam_rembulked(struct sam_ed_s *ed)
            */
 
           prev->hw.nexted = ed->hw.nexted;
+          cp15_coherent_dcache((uintptr_t)prev,
+                               (uintptr_t)prev + sizeof(struct sam_ed_s));
         }
     }
 
+  /* Re-enable bulk list processing if the bulk list is still non-empty
+   * after removing the ED node.
+   */
+
+  if (sam_getreg(SAM_USBHOST_BULKHEADED) != 0)
+    {
+      /* If the bulk list is now empty, then disable it */
+
+      regval  = sam_getreg(SAM_USBHOST_CTRL);
+      regval |= OHCI_CTRL_BLE;
+      sam_putreg(regval, SAM_USBHOST_CTRL);
+    }
+
+  irqrestore(flags);
   return OK;
 #else
   return -ENOSYS;
@@ -866,7 +924,14 @@ static void sam_setinttab(uint32_t value, unsigned int interval, unsigned int of
   unsigned int i;
   for (i = offset; i < HCCA_INTTBL_WSIZE; i += interval)
     {
+      /* Modify the table value */
+
       g_hcca.inttbl[i] = value;
+
+      /* Make sure that the modified table value is flushed to RAM */
+
+      cp15_coherent_dcache(&g_hcca.inttbl[i],
+                           &g_hcca.inttbl[i] + sizeof(uint32_t) - 1);
     }
 }
 #endif
@@ -895,15 +960,18 @@ static inline int sam_addinted(const FAR struct usbhost_epdesc_s *epdesc,
                                struct sam_ed_s *ed)
 {
 #ifndef CONFIG_USBHOST_INT_DISABLE
+  irqstate_t flags;
   unsigned int interval;
   unsigned int offset;
-  uint32_t head;
+  uintptr_t physed;
+  uintptr_t physhead;
   uint32_t regval;
 
   /* Disable periodic list processing.  Does this take effect immediately?  Or
    * at the next SOF... need to check.
    */
 
+  flags   = irqsave();
   regval  = sam_getreg(SAM_USBHOST_CTRL);
   regval &= ~OHCI_CTRL_PLE;
   sam_putreg(regval, SAM_USBHOST_CTRL);
@@ -947,13 +1015,15 @@ static inline int sam_addinted(const FAR struct usbhost_epdesc_s *epdesc,
           interval = g_ohci.outinterval;
         }
     }
+
   uvdbg("min interval: %d offset: %d\n", interval, offset);
 
-  /* Get the head of the first of the duplicated entries.  The first offset
-   * entry is always guaranteed to contain the common ED list head.
+  /* Get the (physical) head of the first of the duplicated entries.  The
+   * first offset entry is always guaranteed to contain the common ED list
+   * head.
    */
 
-  head = g_hcca.inttbl[offset];
+  physhead = g_hcca.inttbl[offset];
 
   /* Clear all current entries in the interrupt table for this direction */
 
@@ -964,15 +1034,22 @@ static inline int sam_addinted(const FAR struct usbhost_epdesc_s *epdesc,
    * interrupt table.
    */
 
-  ed->hw.nexted = head;
-  sam_setinttab((uint32_t)ed, interval, offset);
-  uvdbg("head: %08x next: %08x\n", ed, head);
+  ed->hw.nexted = physhead;
+  cp15_coherent_dcache((uintptr_t)ed,
+                       (uintptr_t)ed + sizeof(struct ohci_ed_s) - 1);
 
-  /* Re-enabled periodic list processing */
+  physed =  sam_physramaddr((uintptr_t)ed);
+  sam_setinttab((uint32_t)physed, interval, offset);
+
+  uvdbg("head: %08x next: %08x\n", physed, physhead);
+
+  /* Re-enable periodic list processing */
 
   regval  = sam_getreg(SAM_USBHOST_CTRL);
   regval |= OHCI_CTRL_PLE;
   sam_putreg(regval, SAM_USBHOST_CTRL);
+
+  irqrestore(flags);
   return OK;
 #else
   return -ENOSYS;
@@ -1005,14 +1082,17 @@ static inline int sam_reminted(struct sam_ed_s *ed)
   struct sam_ed_s *head;
   struct sam_ed_s *curr;
   struct sam_ed_s *prev;
-  unsigned int     interval;
-  unsigned int     offset;
-  uint32_t         regval;
+  irqstate_t flags;
+  uintptr_t physhead;
+  unsigned int interval;
+  unsigned int offset;
+  uint32_t regval;
 
   /* Disable periodic list processing.  Does this take effect immediately?  Or
    * at the next SOF... need to check.
    */
 
+  flags   = irqsave();
   regval  = sam_getreg(SAM_USBHOST_CTRL);
   regval &= ~OHCI_CTRL_PLE;
   sam_putreg(regval, SAM_USBHOST_CTRL);
@@ -1034,9 +1114,11 @@ static inline int sam_reminted(struct sam_ed_s *ed)
    * entry is always guaranteed to contain the common ED list head.
    */
 
-  head = (struct sam_ed_s *)g_hcca.inttbl[offset];
+  physhead = g_hcca.inttbl[offset];
+  head     = (struct sam_ed_s *)sam_virtramaddr((uintptr_t)physhead);
+
   uvdbg("ed: %08x head: %08x next: %08x offset: %d\n",
-        ed, head, head ? head->hw.nexted : 0, offset);
+        ed, physhead, head ? head->hw.nexted : 0, offset);
 
   /* Find the ED to be removed in the ED list */
 
@@ -1059,7 +1141,8 @@ static inline int sam_reminted(struct sam_ed_s *ed)
         {
           /* Yes... set the head of the bulk list to skip over this ED */
 
-          head = (struct sam_ed_s *)ed->hw.nexted;
+          physhead = ed->hw.nexted;
+          head     = (struct sam_ed_s *)sam_virtramaddr((uintptr_t)physhead);
         }
       else
         {
@@ -1069,8 +1152,9 @@ static inline int sam_reminted(struct sam_ed_s *ed)
 
           prev->hw.nexted = ed->hw.nexted;
         }
-        uvdbg("ed: %08x head: %08x next: %08x\n",
-              ed, head, head ? head->hw.nexted : 0);
+
+      uvdbg("ed: %08x head: %08x next: %08x\n",
+            ed, physhead, head ? head->hw.nexted : 0);
 
       /* Calculate the new minimum interval for this list */
 
@@ -1082,6 +1166,7 @@ static inline int sam_reminted(struct sam_ed_s *ed)
               interval = curr->interval;
             }
         }
+
       uvdbg("min interval: %d offset: %d\n", interval, offset);
 
       /* Save the new minimum interval */
@@ -1099,7 +1184,7 @@ static inline int sam_reminted(struct sam_ed_s *ed)
        * table (head might be NULL).
        */
 
-      sam_setinttab((uint32_t)head, interval, offset);
+      sam_setinttab((uint32_t)physhead, interval, offset);
     }
 
   /* Re-enabled periodic list processing */
@@ -1111,6 +1196,7 @@ static inline int sam_reminted(struct sam_ed_s *ed)
       sam_putreg(regval, SAM_USBHOST_CTRL);
     }
 
+  irqrestore(flags);
   return OK;
 #else
   return -ENOSYS;
@@ -1166,6 +1252,9 @@ static int sam_enqueuetd(struct sam_rhport_s *rhport, struct sam_ed_s *ed,
 {
   struct sam_gtd_s *td;
   struct sam_gtd_s *tdtail;
+  uintptr_t phytd;
+  uintptr_t phytail;
+  uintptr_t phybuf;
   int ret = -ENOMEM;
 
   /* Allocate a TD from the free list */
@@ -1173,32 +1262,281 @@ static int sam_enqueuetd(struct sam_rhport_s *rhport, struct sam_ed_s *ed,
   td = sam_tdalloc();
   if (td != NULL)
     {
-      tdtail            = &g_tdtail[rhport->rhpndx];
+      /* Skip processing of this ED while we modify the TD list. */
+
+      ed->hw.ctrl      |= ED_CONTROL_K;
+      cp15_coherent_dcache((uintptr_t)ed,
+                           (uintptr_t)ed + sizeof(struct ohci_ed_s) - 1);
+
+      /* Get the tail ED for this root hub port */
+
+      tdtail            = rhport->ep0.tail;
+
+      /* Get physical addresses to support the DMA */
+
+      phytd             =  sam_physramaddr((uintptr_t)td);
+      phytail           =  sam_physramaddr((uintptr_t)tdtail);
+      phybuf            =  sam_physramaddr((uintptr_t)buffer);
 
       /* Initialize the allocated TD and link it before the common tail TD. */
 
-      td->hw.ctrl       = (GTD_STATUS_R | dirpid | TD_DELAY(0) | toggle | GTD_STATUS_CC_MASK);
+      td->hw.ctrl       = (GTD_STATUS_R | dirpid | TD_DELAY(0) |
+                           toggle | GTD_STATUS_CC_MASK);
       tdtail->hw.ctrl   = 0;
-      td->hw.cbp        = (uint32_t)buffer;
+      td->hw.cbp        = (uint32_t)phybuf;
       tdtail->hw.cbp    = 0;
-      td->hw.nexttd     = (uint32_t)tdtail;
+      td->hw.nexttd     = (uint32_t)phytail;
       tdtail->hw.nexttd = 0;
-      td->hw.be         = (uint32_t)(buffer + (buflen - 1));
+      td->hw.be         = (uint32_t)(phybuf + (buflen - 1));
       tdtail->hw.be     = 0;
 
       /* Configure driver-only fields in the extended TD structure */
 
-      td->ed             = ed;
+      td->ed            = ed;
 
       /* Link the td to the head of the ED's TD list */
 
-      ed->hw.headp       = (uint32_t)td | ((ed->hw.headp) & ED_HEADP_C);
-      ed->hw.tailp       = (uint32_t)tdtail;
+      ed->hw.headp      = (uint32_t)phytd | ((ed->hw.headp) & ED_HEADP_C);
+      ed->hw.tailp      = (uint32_t)phytail;
 
-      ret                = OK;
+      /* Flush the buffer (if there is one), the new TD, and the modified ED
+       * to RAM.
+       */
+
+      if (buffer && buflen > 0)
+        {
+          cp15_coherent_dcache((uintptr_t)buffer,
+                               (uintptr_t)buffer + buflen - 1);
+        }
+
+      cp15_coherent_dcache((uintptr_t)tdtail,
+                           (uintptr_t)tdtail + sizeof(struct ohci_gtd_s) - 1);
+      cp15_coherent_dcache((uintptr_t)td,
+                           (uintptr_t)td + sizeof(struct ohci_gtd_s) - 1);
+
+      /* Resume processing of this ED */
+
+      ed->hw.ctrl      &= ~ED_CONTROL_K;
+      cp15_coherent_dcache((uintptr_t)ed,
+                           (uintptr_t)ed + sizeof(struct ohci_ed_s) - 1);
+      ret               = OK;
     }
 
   return ret;
+}
+
+/*******************************************************************************
+ * Name: sam_ep0enqueue
+ *
+ * Description:
+ *   Initialize ED for EP0, add it to the control ED list, and enable control
+ *   transfers.
+ *
+ * Input Parameters:
+ *   rhpndx - Root hub port index.
+ *
+ * Returned Values:
+ *   None
+ *
+ *******************************************************************************/
+
+static int sam_ep0enqueue(struct sam_rhport_s *rhport)
+{
+  struct sam_ed_s *edctrl;
+  struct sam_gtd_s *tdtail;
+  irqstate_t flags;
+  uintptr_t physaddr;
+  uint32_t regval;
+
+  DEBUGASSERT(rhport && !rhport->ep0init && rhport->ep0.ed == NULL &&
+              rhport->ep0.tail == NULL);
+
+  /* Allocate a control ED and a tail TD */
+
+  flags  = irqsave();
+  edctrl = sam_edalloc();
+  if (!edctrl)
+    {
+      irqrestore(flags);
+      return -ENOMEM;
+    }
+
+  tdtail = sam_tdalloc();
+  if (!tdtail)
+    {
+      sam_edfree(rhport->ep0.ed);
+      irqrestore(flags);
+      return -ENOMEM;
+    }
+
+  rhport->ep0.ed = edctrl;
+  rhport->ep0.tail = tdtail;
+
+  /* ControlListEnable.  This bit is cleared to disable the processing of the
+   * Control list.  We should never modify the control list while CLE is set.
+   */
+
+  regval  = sam_getreg(SAM_USBHOST_CTRL);
+  regval &= ~OHCI_CTRL_CLE;
+  sam_putreg(regval, SAM_USBHOST_CTRL);
+
+  /* Initialize the common tail TD for this port */
+
+  memset(tdtail, 0, sizeof(struct sam_gtd_s));
+  tdtail->ed       = edctrl;
+
+  /* Initialize the control endpoint for this port.
+   * Set up some default values (like max packetsize = 8).
+   * NOTE that the SKIP bit is set until the first readl TD is added.
+   */
+
+  memset(edctrl, 0, sizeof(struct sam_ed_s));
+  (void)sam_ep0configure(&rhport->drvr, 0, 8);
+  edctrl->hw.ctrl  |= ED_CONTROL_K;
+  edctrl->eplist    = &rhport->ep0;
+
+  /* Link the common tail TD to the ED's TD list */
+
+  physaddr          = sam_physramaddr((uintptr_t)tdtail);
+  edctrl->hw.headp  = (uint32_t)physaddr;
+  edctrl->hw.tailp  = (uint32_t)physaddr;
+
+  /* The new ED will be the first ED in the list.  Set the nexted
+   * pointer of the ED old head of the list
+   */
+
+  physaddr          = sam_getreg(SAM_USBHOST_CTRLHEADED);
+  edctrl->hw.nexted = physaddr;
+
+  /* Set the control list head to the new ED */
+
+  physaddr          = (uintptr_t)sam_physramaddr((uintptr_t)edctrl);
+  sam_putreg(physaddr, SAM_USBHOST_CTRLHEADED);
+
+  /* Flush the affected control ED and tail TD to RAM */
+
+  cp15_coherent_dcache((uintptr_t)edctrl,
+                       (uintptr_t)edctrl + sizeof(struct ohci_ed_s) - 1);
+  cp15_coherent_dcache((uintptr_t)tdtail,
+                       (uintptr_t)tdtail + sizeof(struct ohci_gtd_s) - 1);
+
+  /* ControlListEnable.  This bit is set to (re-)enable the processing of the
+   * Control list.  Note: once enabled, it remains enabled and we may even
+   * complete list processing before we get the bit set.
+   */
+
+  regval = sam_getreg(SAM_USBHOST_CTRL);
+  regval |= OHCI_CTRL_CLE;
+  sam_putreg(regval, SAM_USBHOST_CTRL);
+  irqrestore(flags);
+  return OK;
+}
+
+/*******************************************************************************
+ * Name: sam_ep0dequeue
+ *
+ * Description:
+ *   Remove the ED for EP0 from the control ED list and posssibly disable control
+ *   list processing.
+ *
+ * Input Parameters:
+ *   rhpndx - Root hub port index.
+ *
+ * Returned Values:
+ *   None
+ *
+ *******************************************************************************/
+
+static void sam_ep0dequeue(struct sam_rhport_s *rhport)
+{
+  struct sam_ed_s *edctrl;
+  struct sam_ed_s *curred;
+  struct sam_ed_s *preved;
+  struct sam_gtd_s *tdtail;
+  struct sam_gtd_s *currtd;
+  irqstate_t flags;
+  uintptr_t physcurr;
+  uint32_t regval;
+
+  DEBUGASSERT(rhport && rhport->ep0init && rhport->ep0.ed != NULL &&
+              rhport->ep0.tail != NULL);
+
+  /* ControlListEnable.  This bit is cleared to disable the processing of the
+   * Control list.  We should never modify the control list while CLE is set.
+   */
+
+  flags   = irqsave();
+  regval  = sam_getreg(SAM_USBHOST_CTRL);
+  regval &= ~OHCI_CTRL_CLE;
+  sam_putreg(regval, SAM_USBHOST_CTRL);
+
+  /* Search the control list to find the entry to be removed (and its
+   * precedessor).
+   */
+
+  edctrl   = rhport->ep0.ed;
+  physcurr = sam_getreg(SAM_USBHOST_CTRLHEADED);
+
+  for (curred = (struct sam_ed_s *)sam_virtramaddr(physcurr),
+       preved = NULL;
+       curred && curred != edctrl;
+       preved = curred,
+       curred =(struct sam_ed_s *)sam_virtramaddr(physcurr))
+    {
+      physcurr = curred->hw.nexted;
+    }
+
+  DEBUGASSERT(curred);
+
+  /* Remove the ED from the control list */
+
+  if (preved)
+    {
+      /* Unlink the ED from the previous ED in the list */
+
+      preved->hw.nexted = edctrl->hw.nexted;
+
+      /* Flush the modified ED to RAM */
+
+      cp15_coherent_dcache((uintptr_t)preved,
+                           (uintptr_t)preved + sizeof(struct ohci_ed_s) - 1);
+    }
+  else
+    {
+      /* Set the new control list head ED */
+
+      sam_putreg(edctrl->hw.nexted, SAM_USBHOST_CTRLHEADED);
+
+      /* If the control list head is still non-NULL, then (re-)enable
+       * processing of the Control list.
+       */
+
+      if (edctrl->hw.nexted != 0)
+        {
+          regval = sam_getreg(SAM_USBHOST_CTRL);
+          regval |= OHCI_CTRL_CLE;
+          sam_putreg(regval, SAM_USBHOST_CTRL);
+        }
+    }
+  irqrestore(flags);
+
+  /* Release any TDs that may still be attached to the ED. */
+
+  tdtail   = rhport->ep0.tail;
+  physcurr = edctrl->hw.headp;
+
+  for (currtd = (struct sam_gtd_s *)sam_virtramaddr(physcurr);
+       currtd && currtd != tdtail;
+       currtd =(struct sam_gtd_s *)sam_virtramaddr(physcurr))
+    {
+      physcurr = currtd->hw.nexttd;
+      sam_tdfree(currtd);
+    }
+
+  /* Free the tail TD and the control ED allocated for this port */
+
+  sam_tdfree(tdtail);
+  sam_edfree(edctrl);
 }
 
 /*******************************************************************************
@@ -1214,19 +1552,26 @@ static int sam_enqueuetd(struct sam_rhport_s *rhport, struct sam_ed_s *ed,
 
 static int sam_wdhwait(struct sam_rhport_s *rhport, struct sam_ed_s *ed)
 {
+  struct sam_eplist_s *eplist;
   irqstate_t flags = irqsave();
-  int        ret   = -ENODEV;
+  int ret = -ENODEV;
 
   /* Is the device still connected? */
 
   if (rhport->connected)
     {
-      /* Yes.. then set wdhwait to indicate that we expect to be informed when
-       * either (1) the device is disconnected, or (2) the transfer completed.
+      /* Yes.. Get the endpoint list associated with the ED */
+
+      eplist = ed->eplist;
+      DEBUGASSERT(eplist);
+
+      /* Then set wdhwait to indicate that we expect to be informed when
+       * either (1) the device is disconnected, or (2) the transfer
+       * completed.
        */
 
-      ed->wdhwait = true;
-      ret         = OK;
+      eplist->wdhwait = true;
+      ret = OK;
     }
 
   irqrestore(flags);
@@ -1250,6 +1595,7 @@ static int sam_wdhwait(struct sam_rhport_s *rhport, struct sam_ed_s *ed)
 static int sam_ctrltd(struct sam_rhport_s *rhport, uint32_t dirpid,
                       uint8_t *buffer, size_t buflen)
 {
+  struct sam_eplist_s *eplist;
   struct sam_ed_s *edctrl;
   uint32_t toggle;
   uint32_t regval;
@@ -1259,13 +1605,17 @@ static int sam_ctrltd(struct sam_rhport_s *rhport, uint32_t dirpid,
    * transfer.
    */
 
-  edctrl = &g_edctrl[rhport->rhpndx];
-  ret    = sam_wdhwait(rhport, edctrl);
+  edctrl = rhport->ep0.ed;
+  ret = sam_wdhwait(rhport, edctrl);
   if (ret != OK)
     {
       udbg("ERROR: Device disconnected\n");
       return ret;
     }
+
+  /* Get the endpoint list structure for the ED */
+
+  eplist = &rhport->ep0;
 
   /* Configure the toggle field in the TD */
 
@@ -1292,9 +1642,14 @@ static int sam_ctrltd(struct sam_rhport_s *rhport, uint32_t dirpid,
       regval |= OHCI_CMDST_CLF;
       sam_putreg(regval, SAM_USBHOST_CMDST);
 
-      /* Wait for the Writeback Done Head interrupt */
+      /* Wait for the Writeback Done Head interrupt.  Loop to handle any false
+       * alarm semaphore counts.
+       */
 
-      sam_takesem(&edctrl->wdhsem);
+      while (eplist->wdhwait)
+        {
+          sam_takesem(&eplist->wdhsem);
+        }
 
       /* Check the TD completion status bits */
 
@@ -1311,7 +1666,7 @@ static int sam_ctrltd(struct sam_rhport_s *rhport, uint32_t dirpid,
 
   /* Make sure that there is no outstanding request on this endpoint */
 
-  edctrl->wdhwait = false;
+  eplist->wdhwait = false;
   return ret;
 }
 
@@ -1457,30 +1812,64 @@ static void sam_rhsc_interrupt(void)
 
 static void sam_wdh_interrupt(void)
 {
+  struct sam_eplist_s *eplist;
   struct sam_gtd_s *td;
   struct sam_gtd_s *next;
+  struct sam_ed_s *ed;
 
-  /* The host controller just wrote the list of finished TDs into the HCCA
+  /* The host controller just wrote the one finished TDs into the HCCA
    * done head.  This may include multiple packets that were transferred
    * in the preceding frame.
    *
-   * Remove the TD(s) from the Writeback Done Head in the HCCA and return
-   * them to the free list.  Note that this is safe because the hardware
+   * Remove the TD from the Writeback Done Head in the HCCA and return
+   * it to the free list.  Note that this is safe because the hardware
    * will not modify the writeback done head again until the WDH bit is
    * cleared in the interrupt status register.
    */
 
-  td = (struct sam_gtd_s *)g_hcca.donehead;
+  /* Invalidate D-cache to force re-reading of the Done Head */
+
+# if 0 /* Apparently insufficient */
+  cp15_invalidate_dcache((uintptr_t)&g_hcca.donehead,
+                         (uintptr_t)&g_hcca.donehead + sizeof(uint32_t) - 1);
+#else
+  cp15_invalidate_dcache((uintptr_t)&g_hcca,
+                         (uintptr_t)&g_hcca + sizeof(struct ohci_hcca_s) - 1);
+#endif
+
+  /* Now read the done head */
+
+  td = (struct sam_gtd_s *)sam_virtramaddr(g_hcca.donehead);
   g_hcca.donehead = 0;
+  DEBUGASSERT(td);
 
   /* Process each TD in the write done list */
 
   for (; td; td = next)
     {
+      /* Invalidate the just-finished TD from D-cache to force it to be
+       * reloaded from memory.
+       */
+
+      cp15_invalidate_dcache((uintptr_t)td,
+                             (uintptr_t)td + sizeof( struct ohci_gtd_s) - 1);
+
       /* Get the ED in which this TD was enqueued */
 
-      struct sam_ed_s *ed = td->ed;
+      ed = td->ed;
       DEBUGASSERT(ed != NULL);
+
+      /* Get the endpoint list that contains the ED */
+
+      eplist = ed->eplist;
+      DEBUGASSERT(eplist != NULL);
+
+      /* Also nvalidate the control ED so that it two will be re-read from
+       * memory.
+       */
+
+      cp15_invalidate_dcache((uintptr_t)ed,
+                             (uintptr_t)ed + sizeof( struct ohci_ed_s) - 1);
 
       /* Save the condition code from the (single) TD status/control
        * word.
@@ -1500,15 +1889,15 @@ static void sam_wdh_interrupt(void)
 
       /* Return the TD to the free list */
 
-      next = (struct sam_gtd_s *)td->hw.nexttd;
+      next = (struct sam_gtd_s *)sam_virtramaddr(td->hw.nexttd);
       sam_tdfree(td);
 
       /* And wake up the thread waiting for the WDH event */
 
-      if (ed->wdhwait)
+      if (eplist->wdhwait)
         {
-          sam_givesem(&ed->wdhsem);
-          ed->wdhwait = false;
+          sam_givesem(&eplist->wdhsem);
+          eplist->wdhwait = false;
         }
     }
 }
@@ -1698,6 +2087,7 @@ static int sam_enumerate(FAR struct usbhost_connection_s *conn, int rhpndx)
 {
   struct sam_rhport_s *rhport;
   uint32_t regaddr;
+  int ret;
 
   DEBUGASSERT(rhpndx >= 0 && rhpndx < SAM_USBHOST_NRHPORT);
   rhport = &g_ohci.rhport[rhpndx];
@@ -1712,6 +2102,22 @@ static int sam_enumerate(FAR struct usbhost_connection_s *conn, int rhpndx)
 
       udbg("Not connected\n");
       return -ENODEV;
+    }
+
+  /* Add EP0 to the control list */
+
+  if (!rhport->ep0init)
+    {
+      ret = sam_ep0enqueue(rhport);
+      if (ret < 0)
+        {
+          udbg("ERRPOR:  Failed to enqueue EP0\n");
+          return ret;
+        }
+
+      /* Successfully initialized */
+
+      rhport->ep0init = true;
     }
 
   /* USB 2.0 spec says at least 50ms delay before port reset */
@@ -1776,7 +2182,7 @@ static int sam_ep0configure(FAR struct usbhost_driver_s *drvr, uint8_t funcaddr,
               funcaddr >= 0 && funcaddr <= SAM_USBHOST_NRHPORT &&
               maxpacketsize < 2048);
 
-  edctrl = &g_edctrl[rhport->rhpndx];
+  edctrl = rhport->ep0.ed;
 
   /* We must have exclusive access to EP0 and the control list */
 
@@ -1795,6 +2201,11 @@ static int sam_ep0configure(FAR struct usbhost_driver_s *drvr, uint8_t funcaddr,
   /* Set the transfer type to control */
 
   edctrl->xfrtype = USB_EP_ATTR_XFER_CONTROL;
+
+  /* Flush the modified control ED to RAM */
+
+  cp15_coherent_dcache((uintptr_t)edctrl,
+                       (uintptr_t)edctrl + sizeof(struct ohci_ed_s) - 1);
   sam_givesem(&g_ohci.exclsem);
 
   uvdbg("RHPort%d EP0 CTRL: %08x\n", rhport->rhpndx + 1, edctrl->hw.ctrl);
@@ -1827,8 +2238,11 @@ static int sam_epalloc(FAR struct usbhost_driver_s *drvr,
                        const FAR struct usbhost_epdesc_s *epdesc, usbhost_ep_t *ep)
 {
   struct sam_rhport_s *rhport = (struct sam_rhport_s *)drvr;
-  struct sam_ed_s     *ed;
-  int                  ret  = -ENOMEM;
+  struct sam_eplist_s *eplist;
+  struct sam_ed_s *ed;
+  struct sam_gtd_s *td;
+  uintptr_t physaddr;
+  int ret  = -ENOMEM;
 
   /* Sanity check.  NOTE that this method should only be called if a device is
    * connected (because we need a valid low speed indication).
@@ -1836,114 +2250,151 @@ static int sam_epalloc(FAR struct usbhost_driver_s *drvr,
 
   DEBUGASSERT(rhport && epdesc && ep && rhport->connected);
 
+  /* Allocate a container for the endpoint data */
+
+  eplist = (struct sam_eplist_s *)kzalloc(sizeof(struct sam_eplist_s));
+  if (!eplist)
+    {
+      udbg("ERROR: Failed to allocate EP list\n");
+      goto errout;
+    }
+
+  /* Initialize the endpoint container */
+
+  sem_init(&eplist->wdhsem, 0, 0);
+
   /* We must have exclusive access to the ED pool, the bulk list, the periodic list
    * and the interrupt table.
    */
 
   sam_takesem(&g_ohci.exclsem);
 
-  /* Take the next ED from the beginning of the free list (if the list is
-   * non-empty.
-   */
+  /* Allocate an ED and a tail TD for the new endpoint */
 
-  if (g_edfree)
+  ed = sam_edalloc();
+  if (!ed)
     {
-      /* Remove the ED from the freelist */
-
-      ed       = (struct sam_ed_s *)g_edfree;
-      g_edfree = ((struct sam_list_s*)ed)->flink;
-
-      /* Configure the endpoint descriptor. */
-
-      memset((void*)ed, 0, sizeof(struct sam_ed_s));
-      ed->hw.ctrl = (uint32_t)(epdesc->funcaddr)     << ED_CONTROL_FA_SHIFT |
-                    (uint32_t)(epdesc->addr)         << ED_CONTROL_EN_SHIFT |
-                    (uint32_t)(epdesc->mxpacketsize) << ED_CONTROL_MPS_SHIFT;
-
-      /* Get the direction of the endpoint */
-
-      if (epdesc->in)
-        {
-          ed->hw.ctrl |= ED_CONTROL_D_IN;
-        }
-      else
-        {
-          ed->hw.ctrl |= ED_CONTROL_D_OUT;
-        }
-
-      /* Check for a low-speed device */
-
-      if (rhport->lowspeed)
-        {
-          ed->hw.ctrl |= ED_CONTROL_S;
-        }
-
-      /* Set the transfer type */
-
-      ed->xfrtype = epdesc->xfrtype;
-
-      /* Special Case isochronous transfer types */
-
-#if 0 /* Isochronous transfers not yet supported */
-      if (ed->xfrtype == USB_EP_ATTR_XFER_ISOC)
-        {
-          ed->hw.ctrl |= ED_CONTROL_F;
-        }
-#endif
-      uvdbg("EP%d CTRL: %08x\n", epdesc->addr, ed->hw.ctrl);
-
-      /* Initialize the semaphore that is used to wait for the endpoint
-       * WDH event.
-       */
-
-      sem_init(&ed->wdhsem, 0, 0);
-
-      /* Link the common tail TD to the ED's TD list */
-
-      ed->hw.headp = (uint32_t)&g_tdtail[rhport->rhpndx];
-      ed->hw.tailp = (uint32_t)&g_tdtail[rhport->rhpndx];
-
-      /* Now add the endpoint descriptor to the appropriate list */
-
-      switch (ed->xfrtype)
-        {
-        case USB_EP_ATTR_XFER_BULK:
-          ret = sam_addbulked(ed);
-          break;
-
-        case USB_EP_ATTR_XFER_INT:
-          ret = sam_addinted(epdesc, ed);
-          break;
-
-        case USB_EP_ATTR_XFER_ISOC:
-          ret = sam_addisoced(epdesc, ed);
-          break;
-
-        case USB_EP_ATTR_XFER_CONTROL:
-        default:
-          ret = -EINVAL;
-          break;
-        }
-
-      /* Was the ED successfully added? */
-
-      if (ret != OK)
-        {
-          /* No.. destroy it and report the error */
-
-          udbg("ERROR: Failed to queue ED for transfer type: %d\n", ed->xfrtype);
-          sem_destroy(&ed->wdhsem);
-          sam_edfree(ed);
-        }
-      else
-        {
-          /* Yes.. return an opaque reference to the ED */
-
-          *ep = (usbhost_ep_t)ed;
-        }
+      udbg("ERROR: Failed to allocate ED\n");
+      goto errout_with_semaphore;
     }
 
+  td = sam_tdalloc();
+  if (!td)
+    {
+      udbg("ERROR: Failed to allocate TD\n");
+      goto errout_with_ed;
+    }
+
+  /* Save the descriptors in the endpoint container */
+
+  eplist->ed   = ed;
+  eplist->tail = td;
+
+  /* Configure the endpoint descriptor. */
+
+  memset((void*)ed, 0, sizeof(struct sam_ed_s));
+  ed->hw.ctrl = (uint32_t)(epdesc->funcaddr)     << ED_CONTROL_FA_SHIFT |
+                (uint32_t)(epdesc->addr)         << ED_CONTROL_EN_SHIFT |
+                (uint32_t)(epdesc->mxpacketsize) << ED_CONTROL_MPS_SHIFT;
+
+  /* Get the direction of the endpoint */
+
+  if (epdesc->in)
+    {
+      ed->hw.ctrl |= ED_CONTROL_D_IN;
+    }
+  else
+    {
+      ed->hw.ctrl |= ED_CONTROL_D_OUT;
+    }
+
+  /* Check for a low-speed device */
+
+  if (rhport->lowspeed)
+    {
+      ed->hw.ctrl |= ED_CONTROL_S;
+    }
+
+  /* Set the transfer type */
+
+  ed->xfrtype = epdesc->xfrtype;
+
+  /* Special Case isochronous transfer types */
+
+#if 0 /* Isochronous transfers not yet supported */
+  if (ed->xfrtype == USB_EP_ATTR_XFER_ISOC)
+    {
+      ed->hw.ctrl |= ED_CONTROL_F;
+    }
+#endif
+
+  ed->eplist = eplist;
+  uvdbg("EP%d CTRL: %08x\n", epdesc->addr, ed->hw.ctrl);
+
+  /* Configure the tail descriptor. */
+
+  memset(td, 0, sizeof(struct sam_gtd_s));
+  td->ed = ed;
+
+  /* Link the tail TD to the ED's TD list */
+
+  physaddr     = (uintptr_t)sam_physramaddr((uintptr_t)td);
+  ed->hw.headp = physaddr;
+  ed->hw.tailp = physaddr;
+
+  /* Make sure these settings are flushed to RAM */
+
+  cp15_coherent_dcache((uintptr_t)ed,
+                       (uintptr_t)ed + sizeof(struct ohci_ed_s) - 1);
+  cp15_coherent_dcache((uintptr_t)td,
+                       (uintptr_t)td + sizeof(struct ohci_gtd_s) - 1);
+
+  /* Now add the endpoint descriptor to the appropriate list */
+
+  switch (ed->xfrtype)
+    {
+    case USB_EP_ATTR_XFER_BULK:
+      ret = sam_addbulked(ed);
+      break;
+
+    case USB_EP_ATTR_XFER_INT:
+      ret = sam_addinted(epdesc, ed);
+      break;
+
+    case USB_EP_ATTR_XFER_ISOC:
+      ret = sam_addisoced(epdesc, ed);
+      break;
+
+    case USB_EP_ATTR_XFER_CONTROL:
+    default:
+      ret = -EINVAL;
+      break;
+    }
+
+  /* Was the ED successfully added? */
+
+  if (ret != OK)
+    {
+      /* No.. destroy it and report the error */
+
+      udbg("ERROR: Failed to queue ED for transfer type: %d\n", ed->xfrtype);
+      goto errout_with_td;
+    }
+
+  /* Success.. return an opaque reference to the endpoint list container */
+
+  *ep = (usbhost_ep_t)eplist;
   sam_givesem(&g_ohci.exclsem);
+  return OK;
+
+errout_with_td:
+  sam_tdfree(td);
+errout_with_ed:
+  sam_edfree(ed);
+errout_with_semaphore:
+  sam_givesem(&g_ohci.exclsem);
+  kfree(eplist);
+errout:
   return ret;
 }
 
@@ -1970,13 +2421,17 @@ static int sam_epalloc(FAR struct usbhost_driver_s *drvr,
 static int sam_epfree(FAR struct usbhost_driver_s *drvr, usbhost_ep_t ep)
 {
   struct sam_rhport_s *rhport = (struct sam_rhport_s *)drvr;
-  struct sam_ed_s     *ed     = (struct sam_ed_s *)ep;
-  int                  ret;
+  struct sam_eplist_s *eplist = (struct sam_eplist_s *)ep;
+  struct sam_ed_s *ed;
+  int ret;
+
+  DEBUGASSERT(rhport && eplist && eplist->ed && eplist->tail);
 
   /* There should not be any pending, real TDs linked to this ED */
 
-  DEBUGASSERT(rhport && ed &&
-    (ed->hw.headp & ED_HEADP_ADDR_MASK) == (uint32_t)&g_tdtail[rhport->rhpndx]);
+  ed = eplist->ed;
+  DEBUGASSERT((ed->hw.headp & ED_HEADP_ADDR_MASK) ==
+              sam_physramaddr((uintptr_t)rhport->ep0.tail));
 
   /* We must have exclusive access to the ED pool, the bulk list, the periodic list
    * and the interrupt table.
@@ -1984,20 +2439,20 @@ static int sam_epfree(FAR struct usbhost_driver_s *drvr, usbhost_ep_t ep)
 
   sam_takesem(&g_ohci.exclsem);
 
-  /* Remove the ED to the correct list depending on the trasfer type */
+  /* Remove the ED to the correct list depending on the transfer type */
 
   switch (ed->xfrtype)
     {
     case USB_EP_ATTR_XFER_BULK:
-      ret = sam_rembulked(ed);
+      ret = sam_rembulked(eplist->ed);
       break;
 
     case USB_EP_ATTR_XFER_INT:
-      ret = sam_reminted(ed);
+      ret = sam_reminted(eplist->ed);
       break;
 
     case USB_EP_ATTR_XFER_ISOC:
-      ret = sam_remisoced(ed);
+      ret = sam_remisoced(eplist->ed);
       break;
 
     case USB_EP_ATTR_XFER_CONTROL:
@@ -2006,13 +2461,15 @@ static int sam_epfree(FAR struct usbhost_driver_s *drvr, usbhost_ep_t ep)
       break;
     }
 
-  /* Destroy the semaphore */
+  /* Put the ED and tail TDs back into the free list */
 
-  sem_destroy(&ed->wdhsem);
+  sam_edfree(eplist->ed);
+  sam_tdfree(eplist->tail);
 
-  /* Put the ED back into the free list */
+  /* And free the container */
 
-  sam_edfree(ed);
+  sem_destroy(&eplist->wdhsem);
+  kfree(eplist);
   sam_givesem(&g_ohci.exclsem);
   return ret;
 }
@@ -2112,7 +2569,7 @@ static int sam_free(FAR struct usbhost_driver_s *drvr, FAR uint8_t *buffer)
  *   Some hardware supports special memory in which larger IO buffers can
  *   be accessed more efficiently.  This method provides a mechanism to allocate
  *   the request/descriptor memory.  If the underlying hardware does not support
- *   such "special" memory, this functions may simply map to kmalloc.
+ *   such "special" memory, this functions may simply map to kumalloc.
  *
  *   This interface differs from DRVR_ALLOC in that the buffers are variable-sized.
  *
@@ -2150,7 +2607,7 @@ static int sam_ioalloc(FAR struct usbhost_driver_s *drvr, FAR uint8_t **buffer,
  *   Some hardware supports special memory in which IO data can  be accessed more
  *   efficiently.  This method provides a mechanism to free that IO buffer
  *   memory.  If the underlying hardware does not support such "special" memory,
- *   this functions may simply map to kfree().
+ *   this functions may simply map to kufree().
  *
  * Input Parameters:
  *   drvr - The USB host driver instance obtained as a parameter from the call to
@@ -2195,7 +2652,8 @@ static int sam_iofree(FAR struct usbhost_driver_s *drvr, FAR uint8_t *buffer)
  *      created by DRVR_ALLOC.
  *   buffer - A buffer used for sending the request and for returning any
  *     responses.  This buffer must be large enough to hold the length value
- *     in the request description. buffer must have been allocated using DRVR_ALLOC
+ *     in the request description. buffer must have been allocated using
+ *     DRVR_ALLOC
  *
  *   NOTE: On an IN transaction, req and buffer may refer to the same allocated
  *   memory.
@@ -2243,7 +2701,12 @@ static int sam_ctrlin(FAR struct usbhost_driver_s *drvr,
         }
     }
 
+  /* On an IN transaction, we need to invalidate the buffer contents to force
+   * it to be reloaded from RAM after the DMA.
+   */
+
   sam_givesem(&g_ohci.exclsem);
+  cp15_invalidate_dcache((uintptr_t)buffer, (uintptr_t)buffer + len - 1);
   return ret;
 }
 
@@ -2325,7 +2788,8 @@ static int sam_transfer(FAR struct usbhost_driver_s *drvr, usbhost_ep_t ep,
                         FAR uint8_t *buffer, size_t buflen)
 {
   struct sam_rhport_s *rhport = (struct sam_rhport_s *)drvr;
-  struct sam_ed_s *ed = (struct sam_ed_s *)ep;
+  struct sam_eplist_s *eplist = (struct sam_eplist_s *)ep;
+  struct sam_ed_s *ed;
   uint32_t dirpid;
   uint32_t regval;
 #if SAM_IOBUFFERS > 0
@@ -2334,9 +2798,12 @@ static int sam_transfer(FAR struct usbhost_driver_s *drvr, usbhost_ep_t ep,
   bool in;
   int ret;
 
-  DEBUGASSERT(rhport && ed && buffer && buflen > 0);
+  DEBUGASSERT(rhport && eplist && eplist->ed && eplist->tail &&
+              buffer && buflen > 0);
 
+  ed = eplist->ed;
   in = (ed->hw.ctrl  & ED_CONTROL_D_MASK) == ED_CONTROL_D_IN;
+
   uvdbg("EP%d %s toggle: %d maxpacket: %d buflen: %d\n",
         (ed->hw.ctrl  & ED_CONTROL_EN_MASK) >> ED_CONTROL_EN_SHIFT,
         in ? "IN" : "OUT",
@@ -2383,18 +2850,41 @@ static int sam_transfer(FAR struct usbhost_driver_s *drvr, usbhost_ep_t ep,
        * TDs on the Bulk list.
        */
 
-      regval  = sam_getreg(SAM_USBHOST_CMDST);
-      regval |= OHCI_CMDST_BLF;
-      sam_putreg(regval, SAM_USBHOST_CMDST);
+      if (ed->xfrtype == USB_EP_ATTR_XFER_BULK)
+        {
+          regval  = sam_getreg(SAM_USBHOST_CMDST);
+          regval |= OHCI_CMDST_BLF;
+          sam_putreg(regval, SAM_USBHOST_CMDST);
+        }
 
-      /* Wait for the Writeback Done Head interrupt */
+      /* Wait for the Writeback Done Head interrupt  Loop to handle any false
+       * alarm semaphore counts.
+       */
 
-      sam_takesem(&ed->wdhsem);
+      while (eplist->wdhwait)
+        {
+          sam_takesem(&eplist->wdhsem);
+        }
+
+      /* Invalidate the D cache to force the ED to be reloaded from RAM */
+
+      cp15_invalidate_dcache((uintptr_t)ed,
+                             (uintptr_t)ed + sizeof(struct ohci_ed_s) - 1);
 
       /* Check the TD completion status bits */
 
       if (ed->tdstatus == TD_CC_NOERROR)
         {
+          /* On an IN transaction, we also need to invalidate the buffer
+           * contents to force it to be reloaded from RAM.
+           */
+
+          if (in)
+            {
+              cp15_invalidate_dcache((uintptr_t)buffer,
+                                     (uintptr_t)buffer + buflen - 1);
+            }
+
           ret = OK;
         }
       else
@@ -2407,7 +2897,7 @@ static int sam_transfer(FAR struct usbhost_driver_s *drvr, usbhost_ep_t ep,
 errout:
   /* Make sure that there is no outstanding request on this endpoint */
 
-  ed->wdhwait = false;
+  eplist->wdhwait = false;
   sam_givesem(&g_ohci.exclsem);
   return ret;
 }
@@ -2440,90 +2930,14 @@ static void sam_disconnect(FAR struct usbhost_driver_s *drvr)
   struct sam_rhport_s *rhport = (struct sam_rhport_s *)drvr;
   DEBUGASSERT(rhport);
 
+  /* Remove the disconnected port from the control list */
+
+  sam_ep0dequeue(rhport);
+  rhport->ep0init = false;
+
+  /* Unbind the class */
+
   rhport->class = NULL;
-}
-
-/*******************************************************************************
- * Initialization
- *******************************************************************************/
-/*******************************************************************************
- * Name: sam_ep0init
- *
- * Description:
- *   Initialize ED for EP0, add it to the control ED list, and enable control
- *   transfers.
- *
- * Input Parameters:
- *   rhport - Root humb state instance.
- *
- * Returned Values:
- *   None
- *
- *******************************************************************************/
-
-static inline void sam_ep0init(void)
-{
-  uint32_t regval;
-  struct sam_ed_s *edctrl;
-  struct sam_ed_s *preved;
-  struct sam_gtd_s *tdtail;
-  int rhpndx;
-
-  /* Initialize the EP0 control EDs */
-
-  for (rhpndx = 0, preved = NULL;
-       rhpndx < SAM_USBHOST_NRHPORT;
-       rhpndx++, preved = edctrl)
-    {
-      /* Set up some default values */
-
-      (void)sam_ep0configure(&g_ohci.rhport[rhpndx].drvr, 1, 8);
-
-      /* Get some convenience pointers */
-
-      tdtail = &g_tdtail[rhpndx];
-      edctrl = &g_edctrl[rhpndx];
-
-      /* Initialize the common tail TD for this port */
-
-      memset(tdtail, 0, sizeof(struct sam_gtd_s));
-      tdtail->ed       = edctrl;
-      tdtail->prealloc = true;
-
-      /* Initialize the control endpoint for this port */
-
-      memset(edctrl, 0, sizeof(struct sam_ed_s));
-      sem_init(&edctrl->wdhsem, 0, 0);
-
-      /* Link the common tail TD to the ED's TD list */
-
-      edctrl->hw.headp  = (uint32_t)tdtail;
-      edctrl->hw.tailp  = (uint32_t)tdtail;
-
-      /* If this is not the first ED in the list, then link the previous ED
-       * to this one.  Because of the memset, the last ED in the list will
-       * have nexted = NULL.
-       */
-
-      if (preved)
-        {
-          preved->hw.nexted = (uint32_t)edctrl;
-        }
-    }
-
-  /* Set the head of the control list to the EP0 ED for RHport0. */
-
-  sam_putreg((uint32_t)&g_edctrl[0], SAM_USBHOST_CTRLHEADED);
-
-  /* ControlListEnable.  This bit is set to enable the processing of the
-   * Control list.  Note: once enabled, it remains enabled and we may even
-   * complete list processing before we get the bit set.  We really
-   * should never modify the control list while CLE is set.
-   */
-
-  regval = sam_getreg(SAM_USBHOST_CTRL);
-  regval |= OHCI_CTRL_CLE;
-  sam_putreg(regval, SAM_USBHOST_CTRL);
 }
 
 /*******************************************************************************
@@ -2562,13 +2976,11 @@ FAR struct usbhost_connection_s *sam_ohci_initialize(int controller)
   irqstate_t flags;
   int i;
 
-  /* Sanity checks.  NOTE: If certain OS features are enabled, it may be
-   * necessary to increase the size of SAM_ED/TD_SIZE in sam_ohciram.h
-   */
+  /* One time sanity checks */
 
   DEBUGASSERT(controller == 0);
-  DEBUGASSERT(sizeof(struct sam_ed_s)  <= SAM_ED_SIZE);
-  DEBUGASSERT(sizeof(struct sam_gtd_s) <= SAM_TD_SIZE);
+  DEBUGASSERT(sizeof(struct sam_ed_s)  == SIZEOF_SAM_ED_S);
+  DEBUGASSERT(sizeof(struct sam_gtd_s) == SIZEOF_SAM_TD_S);
 
   /* Initialize the state data structure */
 
@@ -2608,6 +3020,17 @@ FAR struct usbhost_connection_s *sam_ohci_initialize(int controller)
   putreg32(regval, SAM_PMC_SCER);
   irqrestore(flags);
 
+  /* Make all three ports usable.  Zero is the reset value and holds the
+   * ports in reset.
+   * REVISIT:  This will have to change in future.  Should be a configuration
+   * setting
+   */
+
+  regval  = getreg32(SAM_SFR_OHCIICR);
+  regval |= (SFR_OHCIICR_RES0 | SFR_OHCIICR_RES1 | SFR_OHCIICR_RES2);
+  putreg32(regval, SAM_SFR_OHCIICR);
+  irqrestore(flags);
+
   /* Note that no pin pinconfiguration is required.  All USB HS pins have
    * dedicated function
    */
@@ -2620,7 +3043,7 @@ FAR struct usbhost_connection_s *sam_ohci_initialize(int controller)
 
   /* Initialize user-configurable EDs */
 
-  for (i = 0; i < CONFIG_SAMA5_OHCI_NEDS; i++)
+  for (i = 0; i < SAMA5_OHCI_NEDS; i++)
     {
       /* Put the ED in a free list */
 
@@ -2629,7 +3052,7 @@ FAR struct usbhost_connection_s *sam_ohci_initialize(int controller)
 
   /* Initialize user-configurable TDs */
 
-  for (i = 0; i < CONFIG_SAMA5_OHCI_NTDS; i++)
+  for (i = 0; i < SAMA5_OHCI_NTDS; i++)
     {
       /* Put the TD in a free list */
 
@@ -2701,10 +3124,6 @@ FAR struct usbhost_connection_s *sam_ohci_initialize(int controller)
 
   sam_putreg((uint32_t)&g_hcca, SAM_USBHOST_HCCA);
 
-  /* Set up EP0 */
-
-  sam_ep0init();
-
   /* Clear pending interrupts */
 
   regval = sam_getreg(SAM_USBHOST_INTST);
@@ -2722,6 +3141,13 @@ FAR struct usbhost_connection_s *sam_ohci_initialize(int controller)
       return NULL;
     }
 
+  /* Drive Vbus +5V (the smoke test).  Should be done elsewhere in OTG
+   * mode.
+   */
+
+  sam_usbhost_vbusdrive(SAM_OHCI_IFACE, true);
+  up_mdelay(50);
+
   /* If there is a USB device in the slot at power up, then we will not
    * get the status change interrupt to signal us that the device is
    * connected.  We need to set the initial connected state accordingly.
@@ -2735,12 +3161,6 @@ FAR struct usbhost_connection_s *sam_ohci_initialize(int controller)
       uvdbg("RHPort%d Device connected: %s\n",
             i+1, g_ohci.rhport[i].connected ? "YES" : "NO");
     }
-
-  /* Drive Vbus +5V (the smoke test).  Should be done elsewhere in OTG
-   * mode.
-   */
-
-  sam_usbhost_vbusdrive(SAM_OHCI_IFACE, true);
 
   /* Enable interrupts at the interrupt controller */
 
