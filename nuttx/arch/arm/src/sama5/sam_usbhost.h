@@ -54,6 +54,14 @@
 #define SAM_EHCI_IFACE 0
 #define SAM_OHCI_IFACE 1
 
+/* This is the interface argument for call outs to board-specific functions which
+ * need to know which root hub port is being used.
+ */
+
+#define SAM_RHPORT1    0
+#define SAM_RHPORT2    1
+#define SAM_RHPORT3    2
+
 /************************************************************************************
  * Public Types
  ************************************************************************************/
@@ -112,6 +120,20 @@ FAR struct usbhost_connection_s *sam_ohci_initialize(int controller);
 #endif
 
 /*******************************************************************************
+ * Name: sam_ohci_tophalf
+ *
+ * Description:
+ *   OHCI "Top Half" interrupt handler.  If both EHCI and OHCI are enabled, then
+ *   EHCI will manage the common UHPHS interrupt and will forward the interrupt
+ *   event to this function.
+ *
+ *******************************************************************************/
+
+#ifdef CONFIG_SAMA5_OHCI
+int sam_ohci_tophalf(int irq, FAR void *context);
+#endif
+
+/*******************************************************************************
  * Name: sam_ehci_initialize
  *
  * Description:
@@ -137,8 +159,8 @@ FAR struct usbhost_connection_s *sam_ohci_initialize(int controller);
  *******************************************************************************/
 
 #ifdef CONFIG_SAMA5_EHCI
-struct usbhost_driver_s;
-FAR struct usbhost_driver_s *sam_ehci_initialize(int controller);
+struct usbhost_connection_s;
+FAR struct usbhost_connection_s *sam_ehci_initialize(int controller);
 #endif
 
 /***********************************************************************************
@@ -149,9 +171,8 @@ FAR struct usbhost_driver_s *sam_ehci_initialize(int controller);
  *   each platform that implements the OHCI or EHCI host interface
  *
  * Input Parameters:
- *   iface  - Selects USB host interface:
- *            0 = EHCI
- *            1 = OHCI
+ *   rhport - Selects root hub port to be powered host interface.  See SAM_RHPORT_*
+ *            definitions above.
  *   enable - true: enable VBUS power; false: disable VBUS power
  *
  * Returned Value:
@@ -159,7 +180,7 @@ FAR struct usbhost_driver_s *sam_ehci_initialize(int controller);
  *
  ***********************************************************************************/
 
-void sam_usbhost_vbusdrive(int iface, bool enable);
+void sam_usbhost_vbusdrive(int rhport, bool enable);
 
 #undef EXTERN
 #if defined(__cplusplus)

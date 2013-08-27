@@ -1166,14 +1166,14 @@ Configurations
           volume when it is removed.  But those callbacks are not used in
           this configuration.
 
-    10) Support the USB full-speed OHCI host driver can be enabled by change
+    10) Support the USB low/full-speed OHCI host driver can be enabled by changing
         the NuttX configuration file as follows:
 
         System Type -> ATSAMA5 Peripheral Support
           CONFIG_SAMA5_UHPHS=y                 : USB Host High Speed
 
         System Type -> USB High Speed Host driver options
-          CONFIG_SAMA5_OHCI=y                  : Full-speed OHCI support
+          CONFIG_SAMA5_OHCI=y                  : Low/full-speed OHCI support
                                                : Defaults for values probably OK
         Device Drivers
           CONFIG_USBHOST=y                     : Enable USB host support
@@ -1192,6 +1192,31 @@ Configurations
        of 396MHz.  This is so that the PLL generates a frequency which is a
        multiple of the 48MHz needed for OHCI.  The delay loop calibration
        values that are used will be off slightly because of this.
+
+    10) Support the USB high-speed EHCI host driver can be enabled by changing
+        the NuttX configuration file as follows.  If EHCI is enabled by itself,
+        then only high-speed devices can be supported.  If OHCI is also enabled,
+        then all low-, full-, and high speed devices should work.
+
+        System Type -> ATSAMA5 Peripheral Support
+          CONFIG_SAMA5_UHPHS=y                 : USB Host High Speed
+
+        System Type -> USB High Speed Host driver options
+          CONFIG_SAMA5_EHCI=y                  : High-speed EHCI support
+          CONFIG_SAMA5_OHCI=y                  : Low/full-speed OHCI support
+                                               : Defaults for values probably OK for both
+        Device Drivers
+          CONFIG_USBHOST=y                     : Enable USB host support
+
+        Device Drivers -> USB Host Driver Support
+          CONFIG_USBHOST_ISOC_DISABLE=y        : Isochronous endpoints not used
+          CONFIG_USBHOST_MSC=y                 : Enable the mass storage class driver
+
+        Library Routines
+          CONFIG_SCHED_WORKQUEUE               : Worker thread support is required
+
+       Application Configuration -> NSH Library
+         CONFIG_NSH_ARCHINIT=y                 : NSH board-initialization
 
     STATUS:
       2013-7-19:  This configuration (as do the others) run at 396MHz.
@@ -1240,8 +1265,31 @@ Configurations
         and prevents NSH from receiving data.  There is no issue when the
         debug output is suppressed and card insertial and removal works as
         expected (at least on the HSMCI1 microSD slot).
+      2013-8-14: I found an error in the way that the HSCMI clocking was
+        configured (a SAM3/4 cloning error).  Need to retest both HSMCI0/1
+        with the corrected clocking.
 
-      2013-8-11: Added OHCI configuration.  Untested!
+      2013-8-11: Added description to add OHCI to the configuration.
+      2013-8-16: The OCHI configuration is now basically functional.
+        Testing is not yet extensive, however:
+        a) I have lots of DEBUG output enabled.  There could be issues
+           when I re-test with debug options disabled.
+        b) I have tested only control and bulk endpoints.  I still need
+           to test interrupt endpoints.
+        c) I have tested only the Mass Storage Class (MSC) and not CDC/ACM.
+        d) OHCI will support 3 downstream points, but I currently have only
+           one enabled.
+
+      2013-8-20:  Added description to add EHCI to the configuration.  At
+        present, however, EHCI is still a work in progress and not ready for
+        prime time.
+      2013-8-26: EHCI is still non-functional.  After days of work, it is
+        able to exchange a SETUP transfer or two, but it still does not make
+        it through the full enumeration sequence.
+        Nor does the hand-off of high speed devices to OHCI work.  In this
+        case, OHCI gets the port, but the port is reset, lost by OCHI and
+        returned to EHCI.  EHCI sees the full-speed port and hands it off
+        to OHCI and this sequence continues forever.
 
   ostest:
     This configuration directory, performs a simple OS test using

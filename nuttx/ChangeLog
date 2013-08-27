@@ -5414,4 +5414,55 @@
 	* arch/arm/src/sama5/sam_ohci.c:  More to be tested, but the SAMA5
 	  OHCI driver is now basically funtional (2013-8-16).
 	* include/nuttx/usb/ehci.h:  EHCI header file (2013-8-17).
-
+	* arch/arm/src/stm32/stm32_i2c.c:  Correct an error that crept into
+	  the STM32 F1 I2C driver with some recent changes.  From Yiran Liao
+	  (2013-8-18).
+	* drivers/usbhost/usbhost_devaddr.c and include/nuttx/usb/usbhost_devaddr.h:
+	  Add logic for management of device addresses.  This logic does not
+	  currently hook into into anything.  It will someday be a part of the
+	  NuttX USB hub implementation (2013-8-18).
+	* nuttx/arch/arm/src/sama5/sam_ehci.c and other files:  Create a skeleton
+	  environment for development of an EHCI driver.  Not much in place yet
+	  (2013-8-20).
+	* nuttx/arch/arm/src/sama5/sam_ehci.c:  Now code complete for all
+	  asynchronous endpoints (control and bulk); nothing yet in place
+	  for periodic endponts (interrupt and isochronous) (2013-8-22).
+	* include/nuttx/serial/serial.h and arch/arm/src/stm32/chip/stm32f40xxx_pinmap.h:
+	  SourceForge bug #16 Fix IO pin map. Add CONFIG_SERIAL_TERMIOS support.
+	  Also fixes some STM32 F4 Timer 8 pin configurations.  From CCTSAO
+	  (2013-8-23).
+	* arch/arm/src/lpc17xx/lpc17_usbhost.h:  Fix #endif with missing #if
+	  condition.  Reported by Andrew Bradford (2013-8-23).
+	* nuttx/arch/arm/src/sama5/sam_ehci.c:  Now handles low- and full-speed
+	  connections by giving the port to the OHCI driver (2013-8-24).
+	* nuttx/arch/arm/src/sama5/sam_ohci.c:  Now uses the work queue to
+	  defer interrupt processing (2013-8-24).
+	* nuttx/arch/arm/src/sama5/sam_ohci.c and nuttx/arch/arm/src/sama5/sam_ehci.c:
+	  EHCI is now the common interrupt "master."  It will receive all UHPHS
+	  interrupts and route the interrupt event to both the OHCI and EHCI
+	  logic (2013-8-24).
+	* net/uip/uip_arp.c:  Correct backward condition in netmask task.
+	  From Max Holtzberg (2013-8-25).
+	* arch/arm/src/sama5/sam_ohci.c:  SAMA5 OHCI is again functional by
+	  itself after all of the changes to integrate with EHCI. (2013-8-25).
+	* drivers/net/encx24j600.c/.h and include/nuttx/net/encx24j600.h: 
+	  Support the Microchip ENCX24J600 Ethernet driver from Max Holtberg
+	  (2013-8-25).
+	* configs/olimex-stm32-p107:  Incorporate ENCX24J600 support for the
+	  Olimex STM32 P107 board.  From Max Holtzberg (2013-8-25).
+	* fs/romfs/fs_romfsutil.c:  Fix an error where long (>15) file names
+	  were read incorrectly from a ROMFS file system.  From Mike Smith
+	  (2013-8-25).
+	* arch/arm/src/stm32/stm32_sdio.c: SourceForge bug #17 Fix if
+	  CONFIG_SDIO_BLOCKSETUP defined, OS will crash". Generate an error
+	  if CONFIG_SDIO_BLOCKSETUP is defined; that option is not yet supported
+	  by the STM32 SDIO driver.  From CCTSAO (2013-6-26)
+	* drivers/net/encx24j600.c and .h: Use the ENC's SRAM for multiple TX
+	  packets.  From Max Holtzberg (2013-6-26).
+	* include/nuttx/usb/usbhost.h, drivers/usbhost/usbhost_enumerate.c, and
+	  all USB host drivers:  Added a new driver method:  getdevinfo.  This
+	  method is intended to get various information about the connected device,
+	  but currently returns only the device speed.  The device speed is
+	  necessary by usbhost_enumerate in order to set a credible initial EP0
+	  max packetsize.  High speed needs 64 bytes, low speed needs 8 bytes,
+	  and full speed can handle almost any size (2013-8-26).

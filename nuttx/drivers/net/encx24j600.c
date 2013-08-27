@@ -1,12 +1,17 @@
 /****************************************************************************
- * drivers/net/enc28j60.c
+ * drivers/net/encx24j600.c
+ *
+ *   Copyright (C) 2013 UVC Ingenieure. All rights reserved.
+ *   Author: Max Holtberg <mh@uvc.de>
+ *
+ * References:
+ * - ENC424J600/624J600 Data Sheet, Stand-Alone 10/100 Ethernet Controller
+ *   with SPI or Parallel Interface, DS39935C, 2010 Microchip Technology Inc.
+ *
+ * Derived from enc28j60 driver written by:
  *
  *   Copyright (C) 2010-2012 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
- *
- * References:
- * - ENC28J60 Data Sheet, Stand-Alone Ethernet Controller with SPI Interface,
- *   DS39662C, 2008 Microchip Technology Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -43,7 +48,7 @@
 
 #include <nuttx/config.h>
 
-#if defined(CONFIG_NET) && defined(CONFIG_ENC28J60)
+#if defined(CONFIG_NET) && defined(CONFIG_ENCX24J600)
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -53,19 +58,20 @@
 #include <debug.h>
 #include <wdog.h>
 #include <errno.h>
+#include <queue.h>
 
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/clock.h>
-#include <nuttx/net/enc28j60.h>
+#include <nuttx/net/encx24j600.h>
 
 #include <nuttx/net/uip/uip.h>
 #include <nuttx/net/uip/uip-arp.h>
 #include <nuttx/net/uip/uip-arch.h>
 
-#include "enc28j60.h"
+#include "encx24j600.h"
 
 /****************************************************************************
  * Definitions
@@ -73,40 +79,39 @@
 
 /* Configuration ************************************************************/
 
-/* ENC28J60 Configuration Settings:
+/* ENCX24J600 Configuration Settings:
  *
- * CONFIG_ENC28J60 - Enabled ENC28J60 support
- * CONFIG_ENC28J60_SPIMODE - Controls the SPI mode
- * CONFIG_ENC28J60_FREQUENCY - Define to use a different bus frequency
- * CONFIG_ENC28J60_NINTERFACES - Specifies the number of physical ENC28J60
+ * CONFIG_ENCX24J600 - Enabled ENCX24J600 support
+ * CONFIG_ENCX24J600_SPIMODE - Controls the SPI mode
+ * CONFIG_ENCX24J600_FREQUENCY - Define to use a different bus frequency
+ * CONFIG_ENCX24J600_NINTERFACES - Specifies the number of physical ENCX24J600
  *   devices that will be supported.
- * CONFIG_ENC28J60_STATS - Collect network statistics
- * CONFIG_ENC28J60_HALFDUPPLEX - Default is full duplex
+ * CONFIG_ENCX24J600_STATS - Collect network statistics
  */
 
-/* The ENC28J60 spec says that it supports SPI mode 0,0 only: "The
+/* The ENCX24J600 spec says that it supports SPI mode 0,0 only: "The
  * implementation used on this device supports SPI mode 0,0 only. In
  * addition, the SPI port requires that SCK be at Idle in a low state;
  * selectable clock polarity is not supported."  However, sometimes you
  * need to tinker with these things.
  */
 
-#ifndef CONFIG_ENC28J60_SPIMODE
-#  define CONFIG_ENC28J60_SPIMODE SPIDEV_MODE0
+#ifndef CONFIG_ENCX24J600_SPIMODE
+#  define CONFIG_ENCX24J600_SPIMODE SPIDEV_MODE0
 #endif
 
-/* CONFIG_ENC28J60_NINTERFACES determines the number of physical interfaces
+/* CONFIG_ENCX24J600_NINTERFACES determines the number of physical interfaces
  * that will be supported.
  */
 
-#ifndef CONFIG_ENC28J60_NINTERFACES
-#  define CONFIG_ENC28J60_NINTERFACES 1
+#ifndef CONFIG_ENCX24J600_NINTERFACES
+#  define CONFIG_ENCX24J600_NINTERFACES 1
 #endif
 
 /* CONFIG_NET_BUFSIZE must always be defined */
 
 #if !defined(CONFIG_NET_BUFSIZE) && (CONFIG_NET_BUFSIZE <= MAX_FRAMELEN)
-#  error "CONFIG_NET_BUFSIZE is not valid for the ENC28J60"
+#  error "CONFIG_NET_BUFSIZE is not valid for the ENCX24J600"
 #endif
 
 /* We need to have the work queue to handle SPI interrupts */
@@ -115,29 +120,29 @@
 #  error "Worker thread support is required (CONFIG_SCHED_WORKQUEUE)"
 #endif
 
-/* CONFIG_ENC28J60_DUMPPACKET will dump the contents of each packet to the console. */
+/* CONFIG_ENCX24J600_DUMPPACKET will dump the contents of each packet to the console. */
 
-#ifdef CONFIG_ENC28J60_DUMPPACKET
+#ifdef CONFIG_ENCX24J600_DUMPPACKET
 #  define enc_dumppacket(m,a,n) lib_dumpbuffer(m,a,n)
 #else
 #  define enc_dumppacket(m,a,n)
 #endif
 
-/* The ENC28J60 will not do interrupt level processing */
+/* The ENCX24J600 will not do interrupt level processing */
 
 #ifndef CONFIG_NET_NOINTS
-#  warrning "CONFIG_NET_NOINTS should be set"
+#  warning "CONFIG_NET_NOINTS should be set"
 #endif
 
 /* Low-level register debug */
 
 #if !defined(CONFIG_DEBUG) || !defined(CONFIG_DEBUG_NET)
-#  undef CONFIG_ENC28J60_REGDEBUG
+#  undef CONFIG_ENCX24J600_REGDEBUG
 #endif
 
 /* Timing *******************************************************************/
 
-/* TX poll deley = 1 seconds. CLK_TCK is the number of clock ticks per second */
+/* TX poll delay = 1 seconds. CLK_TCK is the number of clock ticks per second */
 
 #define ENC_WDDELAY   (1*CLK_TCK)
 #define ENC_POLLHSEC  (1*2)
@@ -154,35 +159,10 @@
 
 /* Packet memory layout */
 
-#define ALIGNED_BUFSIZE ((CONFIG_NET_BUFSIZE + 255) & ~255)
-
-/* Work around Errata #5 (spurious reset of ERXWRPT to 0) by placing the RX
- * FIFO at the beginning of packet memory.
- */
-
-#define ERRATA5 1
-#if ERRATA5
-#  define PKTMEM_RX_START 0x0000                            /* RX buffer must be at addr 0 for errata 5 */
-#  define PKTMEM_RX_END   (PKTMEM_END-ALIGNED_BUFSIZE)      /* RX buffer length is total SRAM minus TX buffer */
-#  define PKTMEM_TX_START (PKTMEM_RX_END+1)                 /* Start TX buffer after */
-#  define PKTMEM_TX_ENDP1 (PKTMEM_TX_START+ALIGNED_BUFSIZE) /* Allow TX buffer for one frame */
-#else
-#  define PKTMEM_TX_START 0x0000                            /* Start TX buffer at 0 */
-#  define PKTMEM_TX_ENDP1 ALIGNED_BUFSIZE                   /* Allow TX buffer for one frame */
-#  define PKTMEM_RX_START PKTMEM_TX_ENDP1                   /* Followed by RX buffer */
-#  define PKTMEM_RX_END   PKTMEM_END                        /* RX buffer goes to the end of SRAM */
-#endif
-
-/* Misc. Helper Macros ******************************************************/
-
-#define enc_rdgreg(priv,ctrlreg) \
-  enc_rdgreg2(priv, ENC_RCR | GETADDR(ctrlreg))
-#define enc_wrgreg(priv,ctrlreg,wrdata) \
-  enc_wrgreg2(priv, ENC_WCR | GETADDR(ctrlreg), wrdata)
-#define enc_bfcgreg(priv,ctrlreg,clrbits) \
-  enc_wrgreg2(priv, ENC_BFC | GETADDR(ctrlreg), clrbits)
-#define enc_bfsgreg(priv,ctrlreg,setbits) \
-  enc_wrgreg2(priv, ENC_BFS | GETADDR(ctrlreg), setbits)
+#define PKTMEM_ALIGNED_BUFSIZE ((CONFIG_NET_BUFSIZE + 1) & ~1)
+#define PKTMEM_NDESCR   ((PKTMEM_SIZE / 2) / PKTMEM_ALIGNED_BUFSIZE)
+#define PKTMEM_RX_START (PKTMEM_START + PKTMEM_SIZE / 2)   /* Followed by RX buffer */
+#define PKTMEM_RX_END   (PKTMEM_START + PKTMEM_SIZE - 2)   /* RX buffer goes to the end of SRAM */
 
 /* This is a helper pointer for accessing the contents of the Ethernet header */
 
@@ -190,14 +170,18 @@
 
 /* Debug ********************************************************************/
 
-#ifdef CONFIG_ENC28J60_REGDEBUG
-#  define enc_wrdump(a,v)   lowsyslog("ENC28J60: %02x<-%02x\n", a, v);
-#  define enc_rddump(a,v)   lowsyslog("ENC28J60: %02x->%02x\n", a, v);
-#  define enc_cmddump(c)    lowsyslog("ENC28J60: CMD: %02x\n", c);
-#  define enc_bmdump(c,b,s) lowsyslog("ENC28J60: CMD: %02x buffer: %p length: %d\n", c,b,s);
+#ifdef CONFIG_ENCX24J600_REGDEBUG
+#  define enc_wrdump(a,v)   lowsyslog("ENCX24J600: %02x<-%04x\n", a, v);
+#  define enc_rddump(a,v)   lowsyslog("ENCX24J600: %02x->%04x\n", a, v);
+#  define enc_bfsdump(a,m)  lowsyslog("ENCX24J600: %02x|=%04x\n", a, m);
+#  define enc_bfcdump(a,m)  lowsyslog("ENCX24J600: %02x&=~%04x\n", a, m);
+#  define enc_cmddump(c)    lowsyslog("ENCX24J600: CMD: %02x\n", c);
+#  define enc_bmdump(c,b,s) lowsyslog("ENCX24J600: CMD: %02x buffer: %p length: %d\n", c,b,s);
 #else
 #  define enc_wrdump(a,v)
 #  define enc_rddump(a,v)
+#  define enc_bfsdump(a,m)
+#  define enc_bfcdump(a,m)
 #  define enc_cmddump(c)
 #  define enc_bmdump(c,b,s)
 #endif
@@ -210,9 +194,16 @@
 
 enum enc_state_e
 {
-  ENCSTATE_UNINIT = 0,                /* The interface is in an uninitialized state */
-  ENCSTATE_DOWN,                      /* The interface is down */
-  ENCSTATE_UP                         /* The interface is up */
+  ENCSTATE_UNINIT = 0,                 /* The interface is in an uninitialized state */
+  ENCSTATE_DOWN,                       /* The interface is down */
+  ENCSTATE_UP                          /* The interface is up */
+};
+
+struct enc_descr_s
+{
+  struct enc_descr_next *flink;
+  uint16_t addr;
+  uint16_t len;
 };
 
 /* The enc_driver_s encapsulates all state information for a single hardware
@@ -224,7 +215,7 @@ struct enc_driver_s
   /* Device control */
 
   uint8_t               ifstate;       /* Interface state:  See ENCSTATE_* */
-  uint8_t               bank;          /* Currently selected bank */
+  uint8_t               bank;          /* Currently selected bank command */
   uint16_t              nextpkt;       /* Next packet address */
   FAR const struct enc_lower_s *lower; /* Low-level MCU-specific support */
 
@@ -241,6 +232,10 @@ struct enc_driver_s
   struct work_s         towork;        /* Tx timeout work queue support */
   struct work_s         pollwork;      /* Poll timeout work queue support */
 
+  struct enc_descr_s    descralloc[PKTMEM_NDESCR];
+  sq_queue_t            freedescr;       /* The free descriptor list */
+  sq_queue_t            txqueue;         /* Enqueued descriptors waiting for transmition */
+
   /* This is the contained SPI driver intstance */
 
   FAR struct spi_dev_s *spi;
@@ -251,7 +246,7 @@ struct enc_driver_s
 
   /* Statistics */
 
-#ifdef CONFIG_ENC28J60_STATS
+#ifdef CONFIG_ENCX24J600_STATS
   struct enc_stats_s    stats;
 #endif
 };
@@ -260,7 +255,7 @@ struct enc_driver_s
  * Private Data
  ****************************************************************************/
 
-static struct enc_driver_s g_enc28j60[CONFIG_ENC28J60_NINTERFACES];
+static struct enc_driver_s g_encx24j600[CONFIG_ENCX24J600_NINTERFACES];
 
 /****************************************************************************
  * Private Function Prototypes
@@ -280,16 +275,18 @@ static inline void enc_unlock(FAR struct enc_driver_s *priv);
 
 /* SPI control register access */
 
-static uint8_t enc_rdgreg2(FAR struct enc_driver_s *priv, uint8_t cmd);
-static void enc_wrgreg2(FAR struct enc_driver_s *priv, uint8_t cmd,
-         uint8_t wrdata);
-static inline void enc_src(FAR struct enc_driver_s *priv);
+static inline void enc_setethrst(FAR struct enc_driver_s *priv);
 static void enc_setbank(FAR struct enc_driver_s *priv, uint8_t bank);
-static uint8_t enc_rdbreg(FAR struct enc_driver_s *priv, uint8_t ctrlreg);
-static void enc_wrbreg(FAR struct enc_driver_s *priv, uint8_t ctrlreg,
-         uint8_t wrdata);
-static int enc_waitbreg(FAR struct enc_driver_s *priv, uint8_t ctrlreg,
-         uint8_t bits, uint8_t value);
+static uint16_t enc_rdreg(FAR struct enc_driver_s *priv, uint16_t ctrlreg);
+static void enc_wrreg(FAR struct enc_driver_s *priv, uint16_t ctrlreg,
+                         uint16_t wrdata);
+static int enc_waitreg(FAR struct enc_driver_s *priv, uint16_t ctrlreg,
+                          uint16_t bits, uint16_t value);
+static void enc_bfs(FAR struct enc_driver_s *priv, uint16_t ctrlreg,
+                    uint16_t bits);
+static void enc_bfc(FAR struct enc_driver_s *priv, uint16_t ctrlreg,
+                    uint16_t bits);
+static void enc_cmd(FAR struct enc_driver_s *priv, uint8_t cmd, uint16_t arg);
 
 #if 0 /* Sometimes useful */
 static void enc_rxdump(FAR struct enc_driver_s *priv);
@@ -311,6 +308,7 @@ static void enc_wrphy(FAR struct enc_driver_s *priv, uint8_t phyaddr,
 
 /* Common TX logic */
 
+static int  enc_txenqueue(FAR struct enc_driver_s *priv);
 static int  enc_transmit(FAR struct enc_driver_s *priv);
 static int  enc_uiptxpoll(struct uip_driver_s *dev);
 
@@ -318,9 +316,6 @@ static int  enc_uiptxpoll(struct uip_driver_s *dev);
 
 static void enc_linkstatus(FAR struct enc_driver_s *priv);
 static void enc_txif(FAR struct enc_driver_s *priv);
-static void enc_txerif(FAR struct enc_driver_s *priv);
-static void enc_txerif(FAR struct enc_driver_s *priv);
-static void enc_rxerif(FAR struct enc_driver_s *priv);
 static void enc_rxdispatch(FAR struct enc_driver_s *priv);
 static void enc_pktif(FAR struct enc_driver_s *priv);
 static void enc_irqworker(FAR void *arg);
@@ -346,7 +341,6 @@ static int  enc_rmmac(struct uip_driver_s *dev, FAR const uint8_t *mac);
 /* Initialization */
 
 static void enc_pwrsave(FAR struct enc_driver_s *priv);
-static void enc_pwrfull(FAR struct enc_driver_s *priv);
 static void enc_setmacaddr(FAR struct enc_driver_s *priv);
 static int  enc_reset(FAR struct enc_driver_s *priv);
 
@@ -358,7 +352,7 @@ static int  enc_reset(FAR struct enc_driver_s *priv);
  * Function: enc_configspi
  *
  * Description:
- *   Configure the SPI for use with the ENC28J60
+ *   Configure the SPI for use with the ENCX24J600
  *
  * Parameters:
  *   spi  - Reference to the SPI driver structure
@@ -369,17 +363,17 @@ static int  enc_reset(FAR struct enc_driver_s *priv);
  * Assumptions:
  *
  ****************************************************************************/
- 
+
 #ifdef CONFIG_SPI_OWNBUS
 static inline void enc_configspi(FAR struct spi_dev_s *spi)
 {
-  /* Configure SPI for the ENC28J60.  But only if we own the SPI bus.
+  /* Configure SPI for the ENCX24J600.  But only if we own the SPI bus.
    * Otherwise, don't bother because it might change.
    */
 
-  SPI_SETMODE(spi, CONFIG_ENC28J60_SPIMODE);
+  SPI_SETMODE(spi, CONFIG_ENCX24J600_SPIMODE);
   SPI_SETBITS(spi, 8);
-  SPI_SETFREQUENCY(spi, CONFIG_ENC28J60_FREQUENCY)
+  SPI_SETFREQUENCY(spi, CONFIG_ENCX24J600_FREQUENCY);
 }
 #endif
 
@@ -408,13 +402,13 @@ static void enc_lock(FAR struct enc_driver_s *priv)
 
   SPI_LOCK(priv->spi, true);
 
-  /* Now make sure that the SPI bus is configured for the ENC28J60 (it
+  /* Now make sure that the SPI bus is configured for the ENCX24J600 (it
    * might have gotten configured for a different device while unlocked)
    */
 
-  SPI_SETMODE(priv->spi, CONFIG_ENC28J60_SPIMODE);
+  SPI_SETMODE(priv->spi, CONFIG_ENCX24J600_SPIMODE);
   SPI_SETBITS(priv->spi, 8);
-  SPI_SETFREQUENCY(priv->spi, CONFIG_ENC28J60_FREQUENCY);
+  SPI_SETFREQUENCY(priv->spi, CONFIG_ENCX24J600_FREQUENCY);
 }
 #endif
 
@@ -444,59 +438,15 @@ static inline void enc_unlock(FAR struct enc_driver_s *priv)
 #endif
 
 /****************************************************************************
- * Function: enc_rdgreg2
+ * Function: enc_cmd
  *
  * Description:
- *   Read a global register (EIE, EIR, ESTAT, ECON2, or ECON1).  The cmd
- *   include the CMD 'OR'd with the the global address register.
+ *   Execute two byte command.
  *
  * Parameters:
- *   priv  - Reference to the driver state structure
- *   cmd   - The full command to received (cmd | address)
- *
- * Returned Value:
- *   The value read from the register
- *
- * Assumptions:
- *
- ****************************************************************************/
-
-static uint8_t enc_rdgreg2(FAR struct enc_driver_s *priv, uint8_t cmd)
-{
-  uint8_t rddata;
-
-  DEBUGASSERT(priv && priv->spi);
-
-  /* Select ENC28J60 chip */
-
-  SPI_SELECT(priv->spi, SPIDEV_ETHERNET, true);;
-
-  /* Send the read command and collect the data.  The sequence requires
-   * 16-clocks:  8 to clock out the cmd + 8 to clock in the data.
-   */
-
-  (void)SPI_SEND(priv->spi, cmd);  /* Clock out the command */
-  rddata = SPI_SEND(priv->spi, 0); /* Clock in the data */
-
-  /* De-select ENC28J60 chip */
-
-  SPI_SELECT(priv->spi, SPIDEV_ETHERNET, false);
-
-  enc_rddump(cmd, rddata);
-  return rddata;
-}
-
-/****************************************************************************
- * Function: enc_wrgreg2
- *
- * Description:
- *   Write to a global register (EIE, EIR, ESTAT, ECON2, or ECON1).  The cmd
- *   include the CMD 'OR'd with the the global address register.
- *
- * Parameters:
- *   priv   - Reference to the driver state structure
- *   cmd    - The full command to received (cmd | address)
- *   wrdata - The data to send
+ *   priv    - Reference to the driver state structure
+ *   cmd     - ENCX24J600 two-byte command
+ *   arg     - Two byte argument to the command
  *
  * Returned Value:
  *   None
@@ -505,40 +455,29 @@ static uint8_t enc_rdgreg2(FAR struct enc_driver_s *priv, uint8_t cmd)
  *
  ****************************************************************************/
 
-static void enc_wrgreg2(FAR struct enc_driver_s *priv, uint8_t cmd,
-                        uint8_t wrdata)
+static void enc_cmd(FAR struct enc_driver_s *priv, uint8_t cmd, uint16_t arg)
 {
   DEBUGASSERT(priv && priv->spi);
 
-  /* Select ENC28J60 chip */
+  /* Select ENCX24J600 chip */
 
   SPI_SELECT(priv->spi, SPIDEV_ETHERNET, true);;
 
-  /* Send the write command and data.  The sequence requires 16-clocks:
-   * 8 to clock out the cmd + 8 to clock out the data.
-   */
+  (void)SPI_SEND(priv->spi, cmd);          /* Clock out the command */
+  (void)SPI_SEND(priv->spi, arg & 0xff);   /* clock out the low byte */
+  (void)SPI_SEND(priv->spi, arg >> 8);     /* clock out the high byte */
 
-  (void)SPI_SEND(priv->spi, cmd);    /* Clock out the command */
-  (void)SPI_SEND(priv->spi, wrdata); /* Clock out the data */
-
-  /* De-select ENC28J60 chip. */
+  /* De-select ENCX24J600 chip. */
 
   SPI_SELECT(priv->spi, SPIDEV_ETHERNET, false);
-  enc_wrdump(cmd, wrdata);
+  enc_wrdump(cmd, arg);
 }
 
 /****************************************************************************
- * Function: enc_src
+ * Function: enc_setethrst
  *
  * Description:
- *   Send the single byte system reset command (SRC).
- *
- *   "The System Reset Command (SRC) allows the host controller to issue a
- *    System Soft Reset command.  Unlike other SPI commands, the SRC is
- *    only a single byte command and does not operate on any register. The
- *    command is started by pulling the CS pin low. The SRC opcode is the
- *    sent, followed by a 5-bit Soft Reset command constant of 1Fh. The
- *    SRC operation is terminated by raising the CS pin."
+ *   Issues System Reset by setting ETHRST (ECON2<4>)
  *
  * Parameters:
  *   priv   - Reference to the driver state structure
@@ -550,7 +489,7 @@ static void enc_wrgreg2(FAR struct enc_driver_s *priv, uint8_t cmd,
  *
  ****************************************************************************/
 
-static inline void enc_src(FAR struct enc_driver_s *priv)
+static inline void enc_setethrst(FAR struct enc_driver_s *priv)
 {
   DEBUGASSERT(priv && priv->spi);
 
@@ -560,63 +499,49 @@ static inline void enc_src(FAR struct enc_driver_s *priv)
 
   /* Send the system reset command. */
 
-  (void)SPI_SEND(priv->spi, ENC_SRC);
+  (void)SPI_SEND(priv->spi, ENC_SETETHRST);
 
-  /* Check CLKRDY bit to see when the reset is complete.  There is an errata
-   * that says the CLKRDY may be invalid.  We'll wait a couple of msec to
-   * workaround this condition.
-   *
-   * Also, "After a System Reset, all PHY registers should not be read or
-   * written to until at least 50 µs have passed since the Reset has ended.
-   * All registers will revert to their Reset default values. The dual
-   * port buffer memory will maintain state throughout the System Reset."
-   */
-
-  up_mdelay(2);
-  /* while ((enc_rdgreg(priv, ENC_ESTAT) & ESTAT_CLKRDY) != 0); */
+  up_udelay(25);
 
   /* De-select ENC28J60 chip. */
 
   SPI_SELECT(priv->spi, SPIDEV_ETHERNET, false);
-  enc_cmddump(ENC_SRC);
+  enc_cmddump(ENC_SETETHRST);
 }
 
 /****************************************************************************
  * Function: enc_setbank
  *
  * Description:
- *   Set the bank for these next control register access.
+ *   Set the bank for the next control register access.
  *
  * Assumption:
  *   The caller has exclusive access to the SPI bus
  *
  * Parameters:
  *   priv   - Reference to the driver state structure
- *   bank   - The bank to select (0-3)
+ *   bank   - SPI command to select the bank with
  *
  * Returned Value:
  *   None
  *
  * Assumptions:
+ *   The chip is selected and SPI is ready for communication.
  *
  ****************************************************************************/
 
 static void enc_setbank(FAR struct enc_driver_s *priv, uint8_t bank)
 {
-  /* Check if the bank setting has changed*/
 
-  if (bank != priv->bank)
+  /* Check if a bank has to be set and if the bank setting has changed.
+   * For registers that are available on all banks, the bank command is set to 0.
+   */
+
+  if (bank != 0 && bank != priv->bank)
     {
-      /* Select bank 0 (just so that all of the bits are cleared) */
+      /* Select bank with supplied command */
 
-      enc_bfcgreg(priv, ENC_ECON1, ECON1_BSEL_MASK);
-
-      /* Then OR in bits to get the correct bank */
-
-      if (bank != 0)
-        {
-          enc_bfsgreg(priv, ENC_ECON1, (bank << ECON1_BSEL_SHIFT));
-        }
+      SPI_SEND(priv->spi, bank);
 
       /* Then remember the bank setting */
 
@@ -625,10 +550,10 @@ static void enc_setbank(FAR struct enc_driver_s *priv, uint8_t bank)
 }
 
 /****************************************************************************
- * Function: enc_rdbreg
+ * Function: enc_rdreg
  *
  * Description:
- *   Read from a banked control register using the RCR command.
+ *   Read one word from a control register using the RCR command.
  *
  * Parameters:
  *   priv    - Reference to the driver state structure
@@ -640,52 +565,35 @@ static void enc_setbank(FAR struct enc_driver_s *priv, uint8_t bank)
  * Assumptions:
  *
  ****************************************************************************/
- 
-static uint8_t enc_rdbreg(FAR struct enc_driver_s *priv, uint8_t ctrlreg)
+
+static uint16_t enc_rdreg(FAR struct enc_driver_s *priv, uint16_t ctrlreg)
 {
-  uint8_t rddata;
+  uint16_t rddata;
 
   DEBUGASSERT(priv && priv->spi);
+  DEBUGASSERT((ctrlreg & 0xe0) == 0); /* banked regeitsers only */
 
-  /* Set the bank */
+  SPI_SELECT(priv->spi, SPIDEV_ETHERNET, true);
 
   enc_setbank(priv, GETBANK(ctrlreg));
 
-  /* Re-select ENC28J60 chip */
+  SPI_SEND(priv->spi, ENC_RCR | GETADDR(ctrlreg));
 
-  SPI_SELECT(priv->spi, SPIDEV_ETHERNET, true);;
+  rddata = SPI_SEND(priv->spi, 0);        /* clock in the low byte */
+  rddata |= SPI_SEND(priv->spi, 0) << 8;  /* clock in the high byte */
 
-  /* Send the RCR command and collect the data.  How we collect the data
-   * depends on if this is a PHY/CAN or not.  The normal sequence requires
-   * 16-clocks:  8 to clock out the cmd and  8 to clock in the data.
-   */
-
-  (void)SPI_SEND(priv->spi, ENC_RCR | GETADDR(ctrlreg)); /* Clock out the command */
-  if (ISPHYMAC(ctrlreg))
-    {
-      /* The PHY/MAC sequence requires 24-clocks:  8 to clock out the cmd,
-       * 8 dummy bits, and 8 to clock in the PHY/MAC data.
-       */
-
-      (void)SPI_SEND(priv->spi, 0); /* Clock in the dummy byte */
-    }
-
-  rddata = SPI_SEND(priv->spi, 0);  /* Clock in the data */
-
-  /* De-select ENC28J60 chip */
 
   SPI_SELECT(priv->spi, SPIDEV_ETHERNET, false);
-  enc_rddump(ENC_RCR | GETADDR(ctrlreg), rddata);
+  enc_rddump(GETADDR(ctrlreg), rddata);
+
   return rddata;
 }
 
 /****************************************************************************
- * Function: enc_wrbreg
+ * Function: enc_wrreg
  *
  * Description:
- *   Write to a banked control register using the WCR command.  Unlike
- *   reading, this same SPI sequence works for normal, MAC, and PHY
- *   registers.
+ *   Write one word to a control register using the WCR command.
  *
  * Parameters:
  *   priv    - Reference to the driver state structure
@@ -698,31 +606,23 @@ static uint8_t enc_rdbreg(FAR struct enc_driver_s *priv, uint8_t ctrlreg)
  * Assumptions:
  *
  ****************************************************************************/
- 
-static void enc_wrbreg(FAR struct enc_driver_s *priv, uint8_t ctrlreg,
-                       uint8_t wrdata)
+
+static void enc_wrreg(FAR struct enc_driver_s *priv, uint16_t ctrlreg,
+                      uint16_t wrdata)
 {
   DEBUGASSERT(priv && priv->spi);
-
-  /* Set the bank */
-
-  enc_setbank(priv, GETBANK(ctrlreg));
-
-  /* Re-select ENC28J60 chip */
+  DEBUGASSERT((ctrlreg & 0xe0) == 0); /* banked regeitsers only */
 
   SPI_SELECT(priv->spi, SPIDEV_ETHERNET, true);;
 
-  /* Send the WCR command and data.  The sequence requires 16-clocks:
-   * 8 to clock out the cmd + 8 to clock out the data.
-   */
+  enc_setbank(priv, GETBANK(ctrlreg));
 
-  (void)SPI_SEND(priv->spi, ENC_WCR | GETADDR(ctrlreg)); /* Clock out the command */
-  (void)SPI_SEND(priv->spi, wrdata);                     /* Clock out the data */
-
-  /* De-select ENC28J60 chip. */
+  SPI_SEND(priv->spi, ENC_WCR | GETADDR(ctrlreg));
+  SPI_SEND(priv->spi, wrdata & 0xff); /* clock out the low byte */
+  SPI_SEND(priv->spi, wrdata >> 8);   /* clock out the high byte */
 
   SPI_SELECT(priv->spi, SPIDEV_ETHERNET, false);
-  enc_wrdump(ENC_WCR | GETADDR(ctrlreg), wrdata);
+  enc_wrdump(GETADDR(ctrlreg), wrdata);
 }
 
 /****************************************************************************
@@ -745,12 +645,12 @@ static void enc_wrbreg(FAR struct enc_driver_s *priv, uint8_t ctrlreg,
  *
  ****************************************************************************/
 
-static int enc_waitbreg(FAR struct enc_driver_s *priv, uint8_t ctrlreg,
-                        uint8_t bits, uint8_t value)
+static int enc_waitreg(FAR struct enc_driver_s *priv, uint16_t ctrlreg,
+                          uint16_t bits, uint16_t value)
 {
   uint32_t start = clock_systimer();
   uint32_t elapsed;
-  uint8_t  rddata;
+  uint16_t rddata;
 
   /* Loop until the exit condition is met */
 
@@ -758,12 +658,102 @@ static int enc_waitbreg(FAR struct enc_driver_s *priv, uint8_t ctrlreg,
     {
       /* Read the byte from the requested banked register */
 
-      rddata  = enc_rdbreg(priv, ctrlreg);
+      rddata  = enc_rdreg(priv, ctrlreg);
       elapsed = clock_systimer() - start;
     }
   while ((rddata & bits) != value || elapsed > ENC_POLLTIMEOUT);
 
   return (rddata & bits) == value ? OK : -ETIMEDOUT;
+}
+
+/****************************************************************************
+ * Function: enc_bfs
+ *
+ * Description:
+ *   Bit Field Set.
+ *
+ * Parameters:
+ *   priv    - Reference to the driver state structure
+ *   ctrlreg - Bit encoded address of banked register to set bits in
+ *   bits    - The bits to set (a mask)
+ *
+ * Returned Value:
+ *   None
+ *
+ * Assumptions:
+ *
+ ****************************************************************************/
+
+static void enc_bfs(FAR struct enc_driver_s *priv, uint16_t ctrlreg,
+                    uint16_t bits)
+{
+  DEBUGASSERT(priv && priv->spi);
+
+  /* Select ENCX24J600 chip */
+
+  SPI_SELECT(priv->spi, SPIDEV_ETHERNET, true);;
+
+  /* Set the bank */
+
+  enc_setbank(priv, GETBANK(ctrlreg));
+
+  /* Send the BFS command and data.  The sequence requires 24-clocks:
+   * 8 to clock out the cmd + 16 to clock out the data.
+   */
+
+  (void)SPI_SEND(priv->spi, ENC_BFS | GETADDR(ctrlreg)); /* Clock out the command */
+  (void)SPI_SEND(priv->spi, bits & 0xff);                /* clock out the low byte */
+  (void)SPI_SEND(priv->spi, bits >> 8);                  /* clock out the high byte */
+
+  /* De-select ENCX24J600 chip. */
+
+  SPI_SELECT(priv->spi, SPIDEV_ETHERNET, false);
+  enc_bfsdump(GETADDR(ctrlreg), bits);
+}
+
+/****************************************************************************
+ * Function: enc_bfc
+ *
+ * Description:
+ *   Bit Field Clear.
+ *
+ * Parameters:
+ *   priv    - Reference to the driver state structure
+ *   ctrlreg - Bit encoded address of banked register to clear bits in
+ *   bits    - The bits to clear (a mask)
+ *
+ * Returned Value:
+ *   None
+ *
+ * Assumptions:
+ *
+ ****************************************************************************/
+
+static void enc_bfc(FAR struct enc_driver_s *priv, uint16_t ctrlreg,
+                    uint16_t bits)
+{
+  DEBUGASSERT(priv && priv->spi);
+
+  /* Select ENCX24J600 chip */
+
+  SPI_SELECT(priv->spi, SPIDEV_ETHERNET, true);;
+
+  /* Set the bank */
+
+  enc_setbank(priv, GETBANK(ctrlreg));
+
+  /* Send the BFC command and data. The sequence requires 24-clocks:
+   * 8 to clock out the cmd + 16 to clock out the data.
+   */
+
+  (void)SPI_SEND(priv->spi, ENC_BFC | GETADDR(ctrlreg)); /* Clock out the command */
+  (void)SPI_SEND(priv->spi, bits & 0xff);                /* clock out the low byte */
+  (void)SPI_SEND(priv->spi, bits >> 8);                  /* clock out the high byte */
+
+  /* De-select ENCX24J600 chip. */
+
+  SPI_SELECT(priv->spi, SPIDEV_ETHERNET, false);
+  enc_bfcdump(GETADDR(ctrlreg), bits);
 }
 
 /****************************************************************************
@@ -842,7 +832,7 @@ static void enc_txdump(FAR struct enc_driver_s *priv)
  * Function: enc_rdbuffer
  *
  * Description:
- *   Read a buffer of data.
+ *   Read a buffer of data from RX Data Buffer.
  *
  * Parameters:
  *   priv    - Reference to the driver state structure
@@ -853,7 +843,7 @@ static void enc_txdump(FAR struct enc_driver_s *priv)
  *   None
  *
  * Assumptions:
- *   Read pointer is set to the correct address
+ *   RX Data pointer is set to the correct address
  *
  ****************************************************************************/
 
@@ -862,22 +852,22 @@ static void enc_rdbuffer(FAR struct enc_driver_s *priv, FAR uint8_t *buffer,
 {
   DEBUGASSERT(priv && priv->spi);
 
-  /* Select ENC28J60 chip */
+  /* Select ENCX24J600 chip */
 
-  SPI_SELECT(priv->spi, SPIDEV_ETHERNET, true);;
+  SPI_SELECT(priv->spi, SPIDEV_ETHERNET, true);
 
   /* Send the read buffer memory command (ignoring the response) */
 
-  (void)SPI_SEND(priv->spi, ENC_RBM);
- 
+  (void)SPI_SEND(priv->spi, ENC_RRXDATA);
+
   /* Then read the buffer data */
 
   SPI_RECVBLOCK(priv->spi, buffer, buflen);
 
-  /* De-select ENC28J60 chip. */
+  /* De-select ENCX24J600 chip. */
 
   SPI_SELECT(priv->spi, SPIDEV_ETHERNET, false);
-  enc_bmdump(ENC_WBM, buffer, buflen);
+  enc_bmdump(ENC_RRXDATA, buffer, buflen);
 }
 
 /****************************************************************************
@@ -895,7 +885,7 @@ static void enc_rdbuffer(FAR struct enc_driver_s *priv, FAR uint8_t *buffer,
  *   None
  *
  * Assumptions:
- *   Read pointer is set to the correct address
+ *   General Purpose Write pointer is set to the correct address
  *
  ****************************************************************************/
 
@@ -904,63 +894,13 @@ static inline void enc_wrbuffer(FAR struct enc_driver_s *priv,
 {
   DEBUGASSERT(priv && priv->spi);
 
-  /* Select ENC28J60 chip
-   *
-   * "The WBM command is started by lowering the CS pin. ..."
-   */
-
   SPI_SELECT(priv->spi, SPIDEV_ETHERNET, true);;
 
-  /* Send the write buffer memory command (ignoring the response)
-   *
-   * "...The [3-bit]WBM opcode should then be sent to the ENC28J60,
-   *  followed by the 5-bit constant, 1Ah."
-   */
-
-  (void)SPI_SEND(priv->spi, ENC_WBM);
- 
-  /* "...the ENC28J60 requires a single per packet control byte to
-   * precede the packet for transmission."
-   *
-   * POVERRIDE: Per Packet Override bit (Not set):
-   *   1 = The values of PCRCEN, PPADEN and PHUGEEN will override the
-   *       configuration defined by MACON3.
-   *   0 = The values in MACON3 will be used to determine how the packet
-   *       will be transmitted
-   * PCRCEN: Per Packet CRC Enable bit (Set, but won't be used because
-   *   POVERRIDE is zero).
-   * PPADEN: Per Packet Padding Enable bit (Set, but won't be used because
-   *   POVERRIDE is zero).
-   * PHUGEEN: Per Packet Huge Frame Enable bit (Set, but won't be used
-   *   because POVERRIDE is zero).
-   */
-
-  (void)SPI_SEND(priv->spi,
-                 (PKTCTRL_PCRCEN | PKTCTRL_PPADEN | PKTCTRL_PHUGEEN));
-
-  /* Then send the buffer
-   *
-   * "... After the WBM command and constant are sent, the data to
-   *  be stored in the memory pointed to by EWRPT should be shifted
-   *  out MSb first to the ENC28J60. After 8 data bits are received,
-   *  the Write Pointer will automatically increment if AUTOINC is
-   *  set. The host controller can continue to provide clocks on the
-   *  SCK pin and send data on the SI pin, without raising CS, to
-   *  keep writing to the memory. In this manner, with AUTOINC
-   *  enabled, it is possible to continuously write sequential bytes
-   *  to the buffer memory without any extra SPI command
-   *  overhead.
-   */
-
+  SPI_SEND(priv->spi, ENC_WGPDATA);
   SPI_SNDBLOCK(priv->spi, buffer, buflen);
 
-  /* De-select ENC28J60 chip
-   *
-   * "The WBM command is terminated by bringing up the CS pin. ..."
-   */
-
   SPI_SELECT(priv->spi, SPIDEV_ETHERNET, false);
-  enc_bmdump(ENC_WBM, buffer, buflen+1);
+  enc_bmdump(ENC_WGPDATA, buffer, buflen);
 }
 
 /****************************************************************************
@@ -985,40 +925,39 @@ static uint16_t enc_rdphy(FAR struct enc_driver_s *priv, uint8_t phyaddr)
   uint16_t data = 0;
 
   /* "To read from a PHY register:
-   *
    *   1. Write the address of the PHY register to read from into the MIREGADR
+   *      register (Register 3-1). Make sure to also set reserved bit 8 of this
    *      register.
    */
 
-  enc_wrbreg(priv, ENC_MIREGADR, phyaddr);
+  enc_wrreg(priv, ENC_MIREGADR, phyaddr);
 
-  /*   2. Set the MICMD.MIIRD bit. The read operation begins and the
-   *      MISTAT.BUSY bit is set.
+  /*   2. Set the MIIRD bit (MICMD<0>, Register 3-2). The read operation begins
+   *      and the BUSY bit (MISTAT<0>, Register 3-3) is automatically set by
+   *      hardware.
    */
 
-  enc_wrbreg(priv, ENC_MICMD, MICMD_MIIRD);
+  enc_bfs(priv, ENC_MICMD, MICMD_MIIRD);
 
-  /*   3. Wait 10.24 µs. Poll the MISTAT.BUSY bit to be certain that the
+  /*   3. Wait 25.6 Î¼s. Poll the BUSY (MISTAT<0>) bit to be certain that the
    *      operation is complete. While busy, the host controller should not
-   *      start any MIISCAN operations or write to the MIWRH register.
-   *
-   *      When the MAC has obtained the register contents, the BUSY bit will
-   *      clear itself.
+   *      start any MIISCAN operations or write to the MIWR register. When the
+   *      MAC has obtained the register contents, the BUSY bit will clear
+   *      itself.
    */
 
-  up_udelay(12);
-  if (enc_waitbreg(priv, ENC_MISTAT, MISTAT_BUSY, 0x00) == OK)
+  up_udelay(26);
+  if (enc_waitreg(priv, ENC_MISTAT, MISTAT_BUSY, 0x00) == OK)
     {
-      /* 4. Clear the MICMD.MIIRD bit. */
+      /* 4. Clear the MIIRD (MICMD<0>) bit. */
 
-      enc_wrbreg(priv, ENC_MICMD, 0x00);
+      enc_bfc(priv, ENC_MICMD, MICMD_MIIRD);
 
-      /* 5. Read the desired data from the MIRDL and MIRDH registers. The
-       *    order that these bytes are accessed is unimportant."
+      /* 5. Read the desired data from the MIRD register. For 8-bit interfaces,
+       *    the order that these bytes are read is unimportant."
        */
 
-      data  = (uint16_t)enc_rdbreg(priv, ENC_MIRDL);
-      data |= (uint16_t)enc_rdbreg(priv, ENC_MIRDH) << 8;
+      data = enc_rdreg(priv, ENC_MIRD);
     }
 
   return data;
@@ -1047,34 +986,29 @@ static void enc_wrphy(FAR struct enc_driver_s *priv, uint8_t phyaddr,
 {
   /* "To write to a PHY register:
    *
-   *    1. Write the address of the PHY register to write to into the
-   *       MIREGADR register.
+   *    1. Write the address of the PHY register to write to into the MIREGADR
+   *       register. Make sure to also set reserved bit 8 of this register.
    */
 
-  enc_wrbreg(priv, ENC_MIREGADR, phyaddr);
+  enc_wrreg(priv, ENC_MIREGADR, 0x0100 | phyaddr);
 
-  /*    2. Write the lower 8 bits of data to write into the MIWRL register. */
-
-  enc_wrbreg(priv, ENC_MIWRL, phydata);
-
-  /*    3. Write the upper 8 bits of data to write into the MIWRH register.
-   *       Writing to this register automatically begins the MIIM transaction,
-   *       so it must be written to after MIWRL. The MISTAT.BUSY bit becomes
-   *       set.
+  /*    2. Write the 16 bits of data into the MIWR register. The low byte must
+   *       be written first, followed by the high byte.
    */
 
-  enc_wrbreg(priv, ENC_MIWRH, phydata >> 8);
+  enc_wrreg(priv, ENC_MIWR, phydata);
 
-  /*    The PHY register will be written after the MIIM operation completes,
-   *    which takes 10.24 µs. When the write operation has completed, the BUSY
-   *    bit will clear itself.
+  /*    3. Writing to the high byte of MIWR begins the MIIM transaction and the
+   *       BUSY (MISTAT<0>) bit is automatically set by hardware.
    *
-   *    The host controller should not start any MIISCAN or MIIRD operations
-   *    while busy."
+   * The PHY register is written after the MIIM operation completes, which takes
+   * 25.6 Î¼s. When the write operation has completed, the BUSY bit clears
+   * itself. The host controller should not start any MIISCAN, MIWR or MIIRD
+   * operations while the BUSY bit is set.
    */
 
-  up_udelay(12);
-  enc_waitbreg(priv, ENC_MISTAT, MISTAT_BUSY, 0x00);
+  up_udelay(26);
+  enc_waitreg(priv, ENC_MISTAT, MISTAT_BUSY, 0);
 }
 
 /****************************************************************************
@@ -1099,14 +1033,13 @@ static void enc_wrphy(FAR struct enc_driver_s *priv, uint8_t phyaddr,
 
 static int enc_transmit(FAR struct enc_driver_s *priv)
 {
-  uint16_t txend;
+  struct enc_descr_s *descr;
 
-  /* Increment statistics */
+  /* dequeue next packet to transmit */
 
-  nllvdbg("Sending packet, pktlen: %d\n", priv->dev.d_len);
-#ifdef CONFIG_ENC28J60_STATS
-  priv->stats.txrequests++;
-#endif
+  descr = (struct enc_descr_s*)sq_remfirst(&priv->txqueue);
+
+  DEBUGASSERT(descr != NULL);
 
   /* Verify that the hardware is ready to send another packet.  The driver
    * starts a transmission process by setting ECON1.TXRTS. When the packet is
@@ -1118,59 +1051,110 @@ static int enc_transmit(FAR struct enc_driver_s *priv)
    * in progress, and that (2) TX-related interrupts are disabled.
    */
 
-  DEBUGASSERT((enc_rdgreg(priv, ENC_ECON1) & ECON1_TXRTS) == 0);
- 
-  /* Send the packet: address=priv->dev.d_buf, length=priv->dev.d_len */
+  DEBUGASSERT((enc_rdreg(priv, ENC_ECON1) & ECON1_TXRTS) == 0);
 
-  enc_dumppacket("Transmit Packet", priv->dev.d_buf, priv->dev.d_len);
+  /* Set TXStart and TXLen registers. */
 
-  /* Set transmit buffer start (is this necessary?). */
-
-  enc_wrbreg(priv, ENC_ETXSTL, PKTMEM_TX_START & 0xff);
-  enc_wrbreg(priv, ENC_ETXSTH, PKTMEM_TX_START >> 8);
-
-  /* Reset the write pointer to start of transmit buffer */
-
-  enc_wrbreg(priv, ENC_EWRPTL, PKTMEM_TX_START & 0xff);
-  enc_wrbreg(priv, ENC_EWRPTH, PKTMEM_TX_START >> 8);
-
-  /* Set the TX End pointer based on the size of the packet to send. Note
-   * that the offset accounts for the control byte at the beginning the
-   * buffer plus the size of the packet data.
-   */
-
-  txend = PKTMEM_TX_START +  priv->dev.d_len;
-  enc_wrbreg(priv, ENC_ETXNDL, txend & 0xff);
-  enc_wrbreg(priv, ENC_ETXNDH, txend >> 8);
-
-  /* Send the WBM command and copy the packet itself into the transmit
-   * buffer at the position of the EWRPT register.
-   */
-
-  enc_wrbuffer(priv, priv->dev.d_buf, priv->dev.d_len);
+  enc_wrreg(priv, ENC_ETXST, descr->addr);
+  enc_wrreg(priv, ENC_ETXLEN, descr->len);
 
   /* Set TXRTS to send the packet in the transmit buffer */
 
-  enc_bfsgreg(priv, ENC_ECON1, ECON1_TXRTS);
+  enc_bfs(priv, ENC_ECON1, ECON1_TXRTS);
 
   /* Setup the TX timeout watchdog (perhaps restarting the timer).  Note:
    * Is there a race condition.  Could the TXIF interrupt occur before
    * the timer is started?
    */
 
-  (void)wd_start(priv->txtimeout, ENC_TXTIMEOUT, enc_txtimeout, 1, (uint32_t)priv);
+  (void)wd_start(priv->txtimeout, ENC_TXTIMEOUT, enc_txtimeout, 1,
+                (uint32_t)priv);
+
+  /* free the descriptor */
+
+  sq_addlast((sq_entry_t*)descr, &priv->freedescr);
+
   return OK;
+}
+
+/****************************************************************************
+ * Function: enc_txenqueue
+ *
+ * Description:
+ *   Write packet from d_buf to the enc's SRAM if a free descriptor is available.
+ *   The filled descriptor is enqueued for transmission.
+ *
+ * Parameters:
+ *   dev  - Reference to the NuttX driver state structure
+ *
+ * Returned Value:
+ *   OK on success; a negated errno on failure
+ *
+ * Assumptions:
+ *   A packet is available in d_buf.
+ *   Interrupts are enabled but the caller holds the uIP lock.
+ *
+ ****************************************************************************/
+
+static int enc_txenqueue(FAR struct enc_driver_s *priv)
+{
+  int ret = OK;
+  struct enc_descr_s *descr;
+
+  DEBUGASSERT(priv->dev.d_len > 0);
+
+  /* Increment statistics */
+
+#ifdef CONFIG_ENCX24J600_STATS
+  priv->stats.txrequests++;
+#endif
+
+  descr = (struct enc_descr_s*)sq_remfirst(&priv->freedescr);
+
+  if (descr != NULL)
+    {
+      enc_dumppacket("Write packet to enc SRAM", priv->dev.d_buf,
+                     priv->dev.d_len);
+
+      /* copy the packet into the transmit buffer described by the current
+       * tx descriptor
+       */
+
+      enc_cmd(priv, ENC_WGPWRPT, descr->addr);
+      enc_wrbuffer(priv, priv->dev.d_buf, priv->dev.d_len);
+
+      /* store packet length */
+
+      descr->len = priv->dev.d_len;
+
+      /* enqueue packet */
+
+      sq_addlast((sq_entry_t*)descr, &priv->txqueue);
+
+      /* if currently no transmission is active, trigger the transmission */
+
+      if ((enc_rdreg(priv, ENC_ECON1) & ECON1_TXRTS) == 0)
+        {
+          enc_transmit(priv);
+        }
+    }
+  else
+    {
+      ret = -ENOMEM;
+    }
+
+  return ret;
 }
 
 /****************************************************************************
  * Function: enc_uiptxpoll
  *
  * Description:
- *   The transmitter is available, check if uIP has any outgoing packets ready
- *   to send.  This is a callback from uip_poll().  uip_poll() may be called:
+ *   Enqueues uIP packets if available.
+ *   This is a callback from uip_poll().  uip_poll() may be called:
  *
  *   1. When the preceding TX packet send is complete,
- *   2. When the preceding TX packet send timesout and the interface is reset
+ *   2. When the preceding TX packet send timedout and the interface is reset
  *   3. During normal TX polling
  *
  * Parameters:
@@ -1187,27 +1171,26 @@ static int enc_transmit(FAR struct enc_driver_s *priv)
 static int enc_uiptxpoll(struct uip_driver_s *dev)
 {
   FAR struct enc_driver_s *priv = (FAR struct enc_driver_s *)dev->d_private;
+  int ret = OK;
 
   /* If the polling resulted in data that should be sent out on the network,
    * the field d_len is set to a value > 0.
    */
 
   nllvdbg("Poll result: d_len=%d\n", priv->dev.d_len);
+
   if (priv->dev.d_len > 0)
     {
       uip_arp_out(&priv->dev);
-      enc_transmit(priv);
 
-      /* Stop the poll now because we can queue only one packet */
-
-      return -EBUSY;
+      ret = enc_txenqueue(priv);
     }
 
   /* If zero is returned, the polling will continue until all connections have
    * been examined.
    */
 
-  return OK;
+  return ret;
 }
 
 /****************************************************************************
@@ -1229,11 +1212,30 @@ static int enc_uiptxpoll(struct uip_driver_s *dev)
 
 static void enc_linkstatus(FAR struct enc_driver_s *priv)
 {
-#if 0
-  uint16_t regval = enc_rdphy(priv, ENC_PHSTAT2);
-  priv->duplex    = ((regval & PHSTAT2_DPXSTAT) != 0);
-  priv->carrier   = ((regval & PHSTAT2_LSTAT) != 0);
-#endif
+  uint16_t regval;
+
+  /* Before transmitting the first packet after link establishment or
+   * auto-negotiation, the MAC duplex configuration must be manually set to
+   * match the duplex configuration of the PHY. To do this, configure
+   * FULDPX (MACON2<0>) to match PHYDPX (ESTAT<10>).
+   */
+
+  regval = enc_rdphy(priv, ENC_ESTAT);
+
+  if (regval & ESTAT_PHYDPX)
+    {
+      /* configure full-duplex */
+
+      enc_wrreg(priv, ENC_MABBIPG, 0x15);
+      enc_bfs(priv, ENC_MACON2, MACON2_FULDPX);
+    }
+  else
+    {
+      /* configure half-duplex */
+
+      enc_wrreg(priv, ENC_MABBIPG, 0x12);
+      enc_bfc(priv, ENC_MACON2, MACON2_FULDPX);
+    }
 }
 
 /****************************************************************************
@@ -1256,98 +1258,22 @@ static void enc_linkstatus(FAR struct enc_driver_s *priv)
 
 static void enc_txif(FAR struct enc_driver_s *priv)
 {
-  /* Update statistics */
-
-#ifdef CONFIG_ENC28J60_STATS
-  priv->stats.txifs++;
-  if (enc_rdgreg(priv, ENC_ESTAT) & ESTAT_TXABRT)
+  if (sq_empty(&priv->txqueue))
     {
-      priv->stats.txabrts++;
+      /* If no further xmits are pending, then cancel the TX timeout */
+
+      wd_cancel(priv->txtimeout);
     }
-#endif
+  else
+    {
+      /* process txqueue */
 
-  /* Clear the request to send bit */
-
-  enc_bfcgreg(priv, ENC_ECON1, ECON1_TXRTS);
-
-  /* If no further xmits are pending, then cancel the TX timeout */
-
-  wd_cancel(priv->txtimeout);
+      enc_transmit(priv);
+    }
 
   /* Then poll uIP for new XMIT data */
 
   (void)uip_poll(&priv->dev, enc_uiptxpoll);
-}
-
-/****************************************************************************
- * Function: enc_txerif
- *
- * Description:
- *   An TXERIF interrupt was received indicating that a TX abort has occurred.
- *
- * Parameters:
- *   priv  - Reference to the driver state structure
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *
- ****************************************************************************/
-
-static void enc_txerif(FAR struct enc_driver_s *priv)
-{
-  /* Update statistics */
-
-#ifdef CONFIG_ENC28J60_STATS
-  priv->stats.txerifs++;
-#endif
-
-  /* Reset TX */
-
-  enc_bfsgreg(priv, ENC_ECON1, ECON1_TXRST);
-  enc_bfcgreg(priv, ENC_ECON1, ECON1_TXRST | ECON1_TXRTS);
-
-  /* Here we really should re-transmit (I fact, if we want half duplex to
-   * work right, then it is necessary to do this!):
-   *
-   * 1.  Read the TSV:
-   *     - Read ETXNDL to get the end pointer
-   *     - Read 7 bytes from that pointer + 1 using ENC_RMB.
-   * 2. Determine if we need to retransmit.  Check the LATE COLLISION bit, if 
-   *    set, then we need to transmit.
-   * 3. Retranmit by resetting ECON1_TXRTS.
-   */
-
-#ifdef CONFIG_ENC28J60_HALFDUPLEX
-#  error "Missing logic for half duplex"
-#endif
-}
-
-/****************************************************************************
- * Function: enc_rxerif
- *
- * Description:
- *   An RXERIF interrupt was received indicating that the last TX packet(s) is
- *   done
- *
- * Parameters:
- *   priv  - Reference to the driver state structure
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *
- ****************************************************************************/
-
-static void enc_rxerif(FAR struct enc_driver_s *priv)
-{
-  /* Update statistics */
-
-#ifdef CONFIG_ENC28J60_STATS
-  priv->stats.rxerifs++;
-#endif
 }
 
 /****************************************************************************
@@ -1388,7 +1314,7 @@ static void enc_rxdispatch(FAR struct enc_driver_s *priv)
       if (priv->dev.d_len > 0)
         {
           uip_arp_out(&priv->dev);
-          enc_transmit(priv);
+          enc_txenqueue(priv);
         }
     }
   else if (BUF->type == htons(UIP_ETHTYPE_ARP))
@@ -1402,7 +1328,7 @@ static void enc_rxdispatch(FAR struct enc_driver_s *priv)
 
        if (priv->dev.d_len > 0)
          {
-           enc_transmit(priv);
+           enc_txenqueue(priv);
          }
      }
   else
@@ -1430,28 +1356,22 @@ static void enc_rxdispatch(FAR struct enc_driver_s *priv)
 
 static void enc_pktif(FAR struct enc_driver_s *priv)
 {
-  uint8_t  rsv[6];
+  uint8_t  rsv[8];
   uint16_t pktlen;
-  uint16_t rxstat;
+  uint32_t rxstat;
 
-  /* Update statistics */
+  DEBUGASSERT(priv->nextpkt >= PKTMEM_RX_START && priv->nextpkt <= PKTMEM_RX_END);
 
-#ifdef CONFIG_ENC28J60_STATS
-  priv->stats.pktifs++;
-#endif
+  /* Set the rx data pointer to the start of the received packet (ERXRDPT) */
 
-  /* Set the read pointer to the start of the received packet (ERDPT) */
+  enc_cmd(priv, ENC_WRXRDPT, priv->nextpkt);
 
-  DEBUGASSERT(priv->nextpkt <= PKTMEM_RX_END);
-  enc_wrbreg(priv, ENC_ERDPTL, (priv->nextpkt));
-  enc_wrbreg(priv, ENC_ERDPTH, (priv->nextpkt) >> 8);
-
-  /* Read the next packet pointer and the 4 byte read status vector (RSV)
-   * at the beginning of the received packet. (ERDPT should auto-increment
+  /* Read the next packet pointer and the 6 byte read status vector (RSV)
+   * at the beginning of the received packet. (ERXRDPT should auto-increment
    * and wrap to the beginning of the read buffer as necessary)
    */
 
-  enc_rdbuffer(priv, rsv, 6);
+  enc_rdbuffer(priv, rsv, 8);
 
   /* Decode the new next packet pointer, and the RSV.  The
    * RSV is encoded as:
@@ -1460,32 +1380,34 @@ static void enc_pktif(FAR struct enc_driver_s *priv)
    *              destination address, source address, type/length, data,
    *              padding and CRC fields. This field is stored in little-
    *              endian format.
-   *  Bits 16-31: Bit encoded RX status.
+   *  Bits 16-47: Bit encoded RX status.
    */
 
-  priv->nextpkt = (uint16_t)rsv[1] << 8 | (uint16_t)rsv[0];
-  pktlen        = (uint16_t)rsv[3] << 8 | (uint16_t)rsv[2];
-  rxstat        = (uint16_t)rsv[5] << 8 | (uint16_t)rsv[4];
+  priv->nextpkt = (uint16_t)rsv[1] << 8  | (uint16_t)rsv[0];
+  pktlen        = (uint16_t)rsv[3] << 8  | (uint16_t)rsv[2];
+  rxstat        = (uint32_t)rsv[7] << 24 | (uint32_t)rsv[6] << 16 |
+                  (uint32_t)rsv[5] << 8  | (uint32_t)rsv[4];
 
-  nllvdbg("Receiving packet, nextpkt: %04x pktlen: %d rxstat: %04x\n",
+  nllvdbg("Receiving packet, nextpkt: %04x pktlen: %d rxstat: %08x\n",
           priv->nextpkt, pktlen, rxstat);
 
   /* Check if the packet was received OK */
 
   if ((rxstat & RXSTAT_OK) == 0)
     {
-      nlldbg("ERROR: RXSTAT: %04x\n", rxstat);
-#ifdef CONFIG_ENC28J60_STATS
+      nlldbg("ERROR: RXSTAT: %08x\n", rxstat);
+
+#ifdef CONFIG_ENCX24J600_STATS
       priv->stats.rxnotok++;
 #endif
     }
- 
+
   /* Check for a usable packet length (4 added for the CRC) */
 
   else if (pktlen > (CONFIG_NET_BUFSIZE + 4) || pktlen <= (UIP_LLH_LEN + 4))
     {
       nlldbg("Bad packet size dropped (%d)\n", pktlen);
-#ifdef CONFIG_ENC28J60_STATS
+#ifdef CONFIG_ENCX24J600_STATS
       priv->stats.rxpktlen++;
 #endif
     }
@@ -1494,33 +1416,34 @@ static void enc_pktif(FAR struct enc_driver_s *priv)
 
   else
     {
-      /* Save the packet length (without the 4 byte CRC) in priv->dev.d_len*/
+      /* Save the packet length (without the 4 byte CRC) in priv->dev.d_len */
 
       priv->dev.d_len = pktlen - 4;
 
       /* Copy the data data from the receive buffer to priv->dev.d_buf.
-       * ERDPT should be correctly positioned from the last call to to
-       * end_rdbuffer (above).
+       * ERXRDPT should be correctly positioned from the last call to to
+       * enc_rdbuffer (above).
        */
 
       enc_rdbuffer(priv, priv->dev.d_buf, priv->dev.d_len);
       enc_dumppacket("Received Packet", priv->dev.d_buf, priv->dev.d_len);
 
       /* Dispatch the packet to uIP */
- 
+
       enc_rxdispatch(priv);
     }
 
-  /* Move the RX read pointer to the start of the next received packet.
-   * This frees the memory we just read.
+  /* Once the whole frame has been processed, the final value of ERXTAIL should
+   * be equal to (NextPacketPointer - 2).
    */
 
-  enc_wrbreg(priv, ENC_ERXRDPTL, (priv->nextpkt));
-  enc_wrbreg(priv, ENC_ERXRDPTH, (priv->nextpkt) >> 8);
+  /* @TODO check if no special handling needed (skip odd addresses?) */
+  enc_wrreg(priv, ENC_ERXTAIL, priv->nextpkt - 2);
 
- /* Decrement the packet counter indicate we are done with this packet */
+  /* Decrement the packet counter indicate we are done with this packet */
 
-  enc_bfsgreg(priv, ENC_ECON2, ECON2_PKTDEC);
+  enc_bfs(priv, ENC_ECON1, ECON1_PKTDEC);
+
 }
 
 /****************************************************************************
@@ -1544,7 +1467,7 @@ static void enc_irqworker(FAR void *arg)
 {
   FAR struct enc_driver_s *priv = (FAR struct enc_driver_s *)arg;
   uip_lock_t lock;
-  uint8_t eir;
+  uint16_t eir;
 
   DEBUGASSERT(priv);
 
@@ -1553,191 +1476,140 @@ static void enc_irqworker(FAR void *arg)
   lock = uip_lock();
   enc_lock(priv);
 
-  /* Disable further interrupts by clearing the global interrupt enable bit.
-   * "After an interrupt occurs, the host controller should clear the global
-   * enable bit for the interrupt pin before servicing the interrupt. Clearing
-   * the enable bit will cause the interrupt pin to return to the non-asserted
-   * state (high). Doing so will prevent the host controller from missing a
-   * falling edge should another interrupt occur while the immediate interrupt
-   * is being serviced."
+  /* A good practice is for the host controller to clear the Global Interrupt
+   * Enable bit, INTIE (EIE<15>), immediately after an interrupt event. This
+   * causes the interrupt pin to return to the non-asserted (high) state. Once
+   * the interrupt has been serviced, the INTIE bit is set again to re-enable
+   * interrupts. If a new interrupt occurs while servicing another, the act of
+   * resetting the global enable bit will cause a new falling edge to occur on
+   * the interrupt pin and ensure that the host does not miss any events
    */
 
-  enc_bfcgreg(priv, ENC_EIE, EIE_INTIE);
+  enc_bfc(priv, ENC_EIE, EIE_INTIE);
 
   /* Loop until all interrupts have been processed (EIR==0).  Note that
    * there is no infinite loop check... if there are always pending interrupts,
    * we are just broken.
    */
 
-  while ((eir = enc_rdgreg(priv, ENC_EIR) & EIR_ALLINTS) != 0)
+  while ((eir = enc_rdreg(priv, ENC_EIR) & EIR_ALLINTS) != 0)
     {
       /* Handle interrupts according to interrupt register register bit
        * settings.
        */
 
-      nllvdbg("EIR: %02x\n", eir);
-
-      /* DMAIF: The DMA interrupt indicates that the DMA module has completed
-       * its memory copy or checksum calculation. Additionally, this interrupt
-       * will be caused if the host controller cancels a DMA operation by
-       * manually clearing the DMAST bit. Once set, DMAIF can only be cleared
-       * by the host controller or by a Reset condition.
-       */
+      nllvdbg("EIR: %04x\n", eir);
 
       if ((eir & EIR_DMAIF) != 0) /* DMA interrupt */
         {
           /* Not used by this driver. Just clear the interrupt request. */
 
-          enc_bfcgreg(priv, ENC_EIR, EIR_DMAIF);
+          enc_bfc(priv, ENC_EIR, EIR_DMAIF);
         }
 
-      /* LINKIF: The LINKIF indicates that the link status has changed.
-       * The actual current link status can be obtained from the
-       * PHSTAT1.LLSTAT or PHSTAT2.LSTAT. Unlike other interrupt sources, the
-       * link status change interrupt is created in the integrated PHY
-       * module.
+      /* LINKIF: The link change interrupt occurs when the PHY link status
+       * changes. This flag is set by hardware when a link has either been
+       * established or broken between the device and a remote Ethernet partner.
+       * The current link status can be read from PHYLNK (ESTAT<8>). The
+       * interrupt should be cleared by software once it has been serviced.
        *
-       * To receive it, the host controller must set the PHIE.PLNKIE and
-       * PGEIE bits. After setting the two PHY interrupt enable bits, the
-       * LINKIF bit will then shadow the contents of the PHIR.PGIF bit.
-       *
-       * Once LINKIF is set, it can only be cleared by the host controller or
-       * by a Reset. The LINKIF bit is read-only. Performing an MII read on
-       * the PHIR register will clear the LINKIF, PGIF and PLNKIF bits
-       * automatically and allow for future link status change interrupts.
+       * To enable the link change interrupt, set LINKIE (EIE<11>).
        */
 
-      if ((eir & EIR_LINKIF) != 0) /* Link change interrupt */
+      if ((eir & EIR_LINKIF) != 0) /* PHY Link Status Change */
         {
-          enc_linkstatus(priv);       /* Get current link status */
-          enc_rdphy(priv, ENC_PHIR);  /* Clear the LINKIF interrupt */
+          enc_linkstatus(priv);                /* Get current link status */
+          enc_bfc(priv, ENC_EIR, EIR_LINKIF);  /* Clear the LINKIF interrupt */
         }
 
-      /* TXIF: The Transmit Interrupt Flag (TXIF) is used to indicate that
-       * the requested packet transmission has ended. Upon transmission
-       * completion, abort or transmission cancellation by the host
-       * controller, the EIR.TXIF flag will be set to 1.
-       *
-       * Once TXIF is set, it can only be cleared by the host controller
-       * or by a Reset condition. Once processed, the host controller should
-       * use the BFC command to clear the EIR.TXIF bit.
+      /* The transmit complete interrupt occurs when the transmission of a
+       * frame has ended (whether or not it was successful). This flag is set
+       * when TXRTS (ECON1<1>) is cleared. The interrupt should be cleared by
+       * software once it has been serviced.
        */
 
-      if ((eir & EIR_TXIF) != 0) /* Transmit interrupt */
+      if ((eir & EIR_TXIF) != 0) /* Transmit Done */
         {
-          enc_txif(priv);                       /* Handle TX completion */
-          enc_bfcgreg(priv, ENC_EIR, EIR_TXIF); /* Clear the TXIF interrupt */
+          enc_txif(priv);
+          enc_bfc(priv, ENC_EIR, EIR_TXIF);
         }
 
-      /* TXERIF: The Transmit Error Interrupt Flag (TXERIF) is used to
-       * indicate that a transmit abort has occurred. An abort can occur
-       * because of any of the following:
+      /* The received packet pending interrupt occurs when one or more frames
+       * have been received and are ready for software processing. This flag is
+       * set when the PKTCNT<7:0> (ESTAT<7:0>) bits are non-zero. This interrupt
+       * flag is read-only and will automatically clear when the PKTCNT bits are
+       * decremented to zero. For more details about receiving and processing
+       * incoming frames, refer to Section 9.0 "Transmitting and Receiving
+       * Packets".
        *
-       * 1. Excessive collisions occurred as defined by the Retransmission
-       *    Maximum (RETMAX) bits in the MACLCON1 register.
-       * 2. A late collision occurred as defined by the Collision Window
-       *   (COLWIN) bits in the MACLCON2 register.
-       * 3. A collision after transmitting 64 bytes occurred (ESTAT.LATECOL
-       *    set).
-       * 4. The transmission was unable to gain an opportunity to transmit
-       *    the packet because the medium was constantly occupied for too long.
-       *    The deferral limit (2.4287 ms) was reached and the MACON4.DEFER bit
-       *    was clear.
-       * 5. An attempt to transmit a packet larger than the maximum frame
-       *    length defined by the MAMXFL registers was made without setting
-       *    the MACON3.HFRMEN bit or per packet POVERRIDE and PHUGEEN bits.
-       *
-       * Upon any of these conditions, the EIR.TXERIF flag is set to 1. Once
-       * set, it can only be cleared by the host controller or by a Reset
-       * condition.
-       *
-       * After a transmit abort, the TXRTS bit will be cleared, the
-       * ESTAT.TXABRT bit will be set and the transmit status vector will be
-       * written at ETXND + 1. The MAC will not automatically attempt to
-       * retransmit the packet. The host controller may wish to read the
-       * transmit status vector and LATECOL bit to determine the cause of
-       * the abort. After determining the problem and solution, the host
-       * controller should clear the LATECOL (if set) and TXABRT bits so
-       * that future aborts can be detected accurately.
-       *
-       * In Full-Duplex mode, condition 5 is the only one that should cause
-       * this interrupt. Collisions and other problems related to sharing
-       * the network are not possible on full-duplex networks. The conditions
-       * which cause the transmit error interrupt meet the requirements of the
-       * transmit interrupt. As a result, when this interrupt occurs, TXIF
-       * will also be simultaneously set.
+       * To enable the received packet pending interrupt, set PKTIE (EIE<6>).
+       * The corresponding interrupt flag is PKTIF (EIR<6>).
        */
 
-      if ((eir & EIR_TXERIF) != 0) /* Transmit Error Interrupts */
+      if ((eir & EIR_PKTIF) != 0    /* RX Packet Pending */
+          && (enc_rdreg(priv, ENC_ESTAT) & ESTAT_PKTCNT_MASK) != 0)
         {
-          enc_txerif(priv);                       /* Handle the TX error */
-          enc_bfcgreg(priv, ENC_EIR, EIR_TXERIF); /* Clear the TXERIF interrupt */
+          enc_pktif(priv);          /* Handle packet receipt */
+
+          /* No clearing necessary, after PKTCNT == 0 the bit is automatically
+           * cleared. This means we will loop until all packets are processed.
+           */
         }
 
-      /* PKTIF The Receive Packet Pending Interrupt Flag (PKTIF) is used to
-       * indicate the presence of one or more data packets in the receive
-       * buffer and to provide a notification means for the arrival of new
-       * packets. When the receive buffer has at least one packet in it,
-       * EIR.PKTIF will be set. In other words, this interrupt flag will be
-       * set anytime the Ethernet Packet Count register (EPKTCNT) is non-zero.
+#ifdef CONFIG_ENCX24J600_STATS
+
+      /* The transmit abort interrupt occurs when the transmission of a frame
+       * has been aborted. An abort can occur for any of the following reasons:
        *
-       * The PKTIF bit can only be cleared by the host controller or by a Reset
-       * condition. In order to clear PKTIF, the EPKTCNT register must be
-       * decremented to 0. If the last data packet in the receive buffer is
-       * processed, EPKTCNT will become zero and the PKTIF bit will automatically
-       * be cleared.
+       * * Excessive collisions occurred as defined by the Retransmission
+       *   Maximum, MAXRET<3:0> bits (MACLCON<3:0>), setting. If this occurs,
+       *   the COLCNT bits (ETXSTAT<3:0>) will indicate the number of collisions
+       *   that occurred.
+       *
+       * * A late collision occurred after 63 bytes were transmitted. If this
+       *   occurs, LATECOL (ETXSTAT<10>) will be set.
+       *
+       * * The medium was busy and the packet was deferred. If this occurs,
+       *   EXDEFER (ETXSTAT<8>) will be set.
+       *
+       * * The application aborted the transmission by clearing TXRTS
+       *   (ECON1<1>).
+       *
+       * The interrupt should be cleared by software once it has  been serviced.
+       * To enable the transmit abort interrupt, set TXABTIE (EIE<2>).
        */
 
-      /* Ignore PKTIF because is unreliable. Use EPKTCNT instead */
-      /* if ((eir & EIR_PKTIF) != 0) */
+      if ((eir & EIR_TXABTIF) != 0) /* Transmit Abort */
         {
-          uint8_t pktcnt = enc_rdbreg(priv, ENC_EPKTCNT);
-          if (pktcnt > 0)
-            {
-              nllvdbg("EPKTCNT: %02x\n", pktcnt);
+          priv->stats.txerifs++;
+          enc_bfc(priv, ENC_EIR, EIR_TXABTIF);  /* Clear the TXABTIF interrupt */
+        }
 
-#ifdef CONFIG_ENC28J60_STATS
-              if (pktcnt > priv->stats.maxpktcnt)
-                {
-                  priv->stats.maxpktcnt = pktcnt;
-                }
+      /* The receive abort interrupt occurs when the reception of a frame has
+       * been aborted. A frame being received is aborted when the Head Pointer
+       * attempts to overrun the Tail Pointer, or when the packet counter has
+       * reached FFh. In either case, the receive buffer is full and cannot fit
+       * the incoming frame, so the packet has been dropped. This interrupt does
+       * not occur when packets are dropped due to the receive filters rejecting
+       * a packet. The interrupt should be cleared by software once it has been
+       * serviced.
+       *
+       * To enable the receive abort interrupt, set RXABTIE (EIE<1>).
+       * The corresponding interrupt flag is RXABTIF (EIR<1>).
+       */
+
+      if ((eir & EIR_RXABTIF) != 0) /* Receive Abort */
+        {
+          priv->stats.rxerifs++;
+          enc_bfc(priv, ENC_EIR, EIR_RXABTIF);  /* Clear the RXABTIF interrupt */
+        }
 #endif
-              /* Handle packet receipt */
 
-              enc_pktif(priv);
-            }
-        }
-
-      /* RXERIF: The Receive Error Interrupt Flag (RXERIF) is used to
-       * indicate a receive buffer overflow condition. Alternately, this
-       * interrupt may indicate that too many packets are in the receive
-       * buffer and more cannot be stored without overflowing the EPKTCNT
-       * register.  When a packet is being received and the receive buffer
-       * runs completely out of space, or EPKTCNT is 255 and cannot be
-       * incremented, the packet being received will be aborted (permanently
-       * lost) and the EIR.RXERIF bit will be set to 1.
-       *
-       * Once set, RXERIF can only be cleared by the host controller or by a
-       * Reset condition. Normally, upon the receive error condition, the
-       * host controller would process any packets pending from the receive
-       * buffer and then make additional room for future packets by
-       * advancing the ERXRDPT registers (low byte first) and decrementing
-       * the EPKTCNT register.
-       *
-       * Once processed, the host controller should use the BFC command to
-       * clear the EIR.RXERIF bit.
-       */
-
-      if ((eir & EIR_RXERIF) != 0) /* Receive Errror Interrupts */
-        {
-          enc_rxerif(priv);                       /* Handle the RX error */
-          enc_bfcgreg(priv, ENC_EIR, EIR_RXERIF); /* Clear the RXERIF interrupt */
-        }
     }
 
   /* Enable Ethernet interrupts */
 
-  enc_bfsgreg(priv, ENC_EIE, EIE_INTIE);
+  enc_bfs(priv, ENC_EIE, EIE_INTIE);
 
   /* Release lock on the SPI bus and uIP */
 
@@ -1768,7 +1640,7 @@ static void enc_irqworker(FAR void *arg)
 
 static int enc_interrupt(int irq, FAR void *context)
 {
-  register FAR struct enc_driver_s *priv = &g_enc28j60[0];
+  register FAR struct enc_driver_s *priv = &g_encx24j600[0];
 
   /* In complex environments, we cannot do SPI transfers from the interrupt
    * handler because semaphores are probably used to lock the SPI bus.  In
@@ -1821,18 +1693,19 @@ static void enc_toworker(FAR void *arg)
 
   /* Increment statistics and dump debug info */
 
-#ifdef CONFIG_ENC28J60_STATS
+#ifdef CONFIG_ENCX24J600_STATS
   priv->stats.txtimeouts++;
 #endif
 
   /* Then reset the hardware: Take the interface down, then bring it
    * back up
    */
- 
+
   ret = enc_ifdown(&priv->dev);
   DEBUGASSERT(ret == OK);
   ret = enc_ifup(&priv->dev);
   DEBUGASSERT(ret == OK);
+  (void)ret;
 
   /* Then poll uIP for new XMIT data */
 
@@ -1881,6 +1754,7 @@ static void enc_txtimeout(int argc, uint32_t arg, ...)
    */
 
   ret = work_queue(HPWORK, &priv->towork, enc_toworker, (FAR void *)priv, 0);
+  (void)ret;
   DEBUGASSERT(ret == OK);
 }
 
@@ -1919,7 +1793,7 @@ static void enc_pollworker(FAR void *arg)
    * ECON1.TXRTS bit will be cleared.
    */
 
-  if ((enc_rdgreg(priv, ENC_ECON1) & ECON1_TXRTS) == 0)
+  if ((enc_rdreg(priv, ENC_ECON1) & ECON1_TXRTS) == 0)
     {
       /* Yes.. update TCP timing states and poll uIP for new XMIT data. Hmmm..
        * looks like a bug here to me.  Does this mean if there is a transmit
@@ -1975,6 +1849,7 @@ static void enc_polltimer(int argc, uint32_t arg, ...)
    */
 
   ret = work_queue(HPWORK, &priv->pollwork, enc_pollworker, (FAR void *)priv, 0);
+  (void)ret;
   DEBUGASSERT(ret == OK);
 }
 
@@ -1983,7 +1858,7 @@ static void enc_polltimer(int argc, uint32_t arg, ...)
  *
  * Description:
  *   NuttX Callback: Bring up the Ethernet interface when an IP address is
- *   provided 
+ *   provided
  *
  * Parameters:
  *   dev  - Reference to the NuttX driver state structure
@@ -2015,21 +1890,27 @@ static int enc_ifup(struct uip_driver_s *dev)
   ret = enc_reset(priv);
   if (ret == OK)
     {
-      enc_setmacaddr(priv);
-      enc_pwrfull(priv);
 
-      /* Enable interrupts at the ENC28J60.  Interrupts are still disabled
+      enc_setmacaddr(priv);
+      /* enc_pwrfull(priv); */
+
+
+      /* Enable interrupts at the ENCX24J600.  Interrupts are still disabled
        * at the interrupt controller.
        */
 
-      enc_wrphy(priv, ENC_PHIE, PHIE_PGEIE | PHIE_PLNKIE);
-      enc_bfcgreg(priv, ENC_EIR, EIR_ALLINTS);
-      enc_wrgreg(priv, ENC_EIE, EIE_INTIE  | EIE_PKTIE  | EIE_LINKIE |
-                                EIE_TXIE   | EIE_TXERIE | EIE_RXERIE);
+      enc_bfc(priv, ENC_EIR, EIR_ALLINTS);
+      enc_bfs(priv, ENC_EIE, EIE_INTIE  | EIE_LINKIE  |
+                             EIE_PKTIE  | EIE_RXABTIE |
+                             EIE_TXIE   );
+
+#ifdef CONFIG_ENCX24J600_STATS
+      enc_bfs(priv, ENC_EIE, EIE_TXABTIE);
+#endif
 
       /* Enable the receiver */
 
-      enc_bfsgreg(priv, ENC_ECON1, ECON1_RXEN);
+      enc_bfs(priv, ENC_ECON1, ECON1_RXEN);
 
       /* Set and activate a timer process */
 
@@ -2046,6 +1927,7 @@ static int enc_ifup(struct uip_driver_s *dev)
   /* Un-lock the SPI bus */
 
   enc_unlock(priv);
+
   return ret;
 }
 
@@ -2100,6 +1982,7 @@ static int enc_ifdown(struct uip_driver_s *dev)
   /* Un-lock the SPI bus */
 
   enc_unlock(priv);
+
   return ret;
 }
 
@@ -2107,7 +1990,7 @@ static int enc_ifdown(struct uip_driver_s *dev)
  * Function: enc_txavail
  *
  * Description:
- *   Driver callback invoked when new TX data is available.  This is a 
+ *   Driver callback invoked when new TX data is available.  This is a
  *   stimulus perform an out-of-cycle poll and, thereby, reduce the TX
  *   latency.
  *
@@ -2142,7 +2025,7 @@ static int enc_txavail(struct uip_driver_s *dev)
        * ECON1.TXRTS bit will be cleared.
        */
 
-      if ((enc_rdgreg(priv, ENC_ECON1) & ECON1_TXRTS) == 0)
+      if ((enc_rdreg(priv, ENC_ECON1) & ECON1_TXRTS) == 0)
         {
           /* The interface is up and TX is idle; poll uIP for new XMIT data */
 
@@ -2154,6 +2037,7 @@ static int enc_txavail(struct uip_driver_s *dev)
 
   irqrestore(flags);
   enc_unlock(priv);
+
   return OK;
 }
 
@@ -2166,7 +2050,7 @@ static int enc_txavail(struct uip_driver_s *dev)
  *
  * Parameters:
  *   dev  - Reference to the NuttX driver state structure
- *   mac  - The MAC address to be added 
+ *   mac  - The MAC address to be added
  *
  * Returned Value:
  *   None
@@ -2204,7 +2088,7 @@ static int enc_addmac(struct uip_driver_s *dev, FAR const uint8_t *mac)
  *
  * Parameters:
  *   dev  - Reference to the NuttX driver state structure
- *   mac  - The MAC address to be removed 
+ *   mac  - The MAC address to be removed
  *
  * Returned Value:
  *   None
@@ -2237,24 +2121,30 @@ static int enc_rmmac(struct uip_driver_s *dev, FAR const uint8_t *mac)
  * Function: enc_pwrsave
  *
  * Description:
- *   The ENC28J60 may be commanded to power-down via the SPI interface.
- *   When powered down, it will no longer be able to transmit and receive
- *   any packets. To maximize power savings:
+ *   The ENCX24J600 may be placed in Power-Down mode through the command
+ *   interface. In this mode, the device will no longer be able to transmit or
+ *   receive any packets or perform DMA operations. However, most registers, and
+ *   all buffer memories, retain their states and remain accessible by the host
+ *   controller. The clock driver also remains operational, leaving the CLKOUT
+ *   function unaffected. However, the MAC/MII and PHY registers all become
+ *   inaccessible, and the PHY registers lose their current states.
  *
- *   1. Turn off packet reception by clearing ECON1.RXEN.
- *   2. Wait for any in-progress packets to finish being received by
- *      polling ESTAT.RXBUSY. This bit should be clear before proceeding.
- *   3. Wait for any current transmissions to end by confirming ECON1.TXRTS
- *      is clear.
- *   4. Set ECON2.VRPS (if not already set).
- *   5. Enter Sleep by setting ECON2.PWRSV. All MAC, MII and PHY registers
- *      become inaccessible as a result. Setting PWRSV also clears
- *      ESTAT.CLKRDY automatically.
+ *   1. Turn off the Modular Exponentiation and AES engines by clearing
+ *      CRYPTEN (EIR<15>).
+ *   2. Turn off packet reception by clearing RXEN (ECON1<0>).
+ *   3. Wait for any in-progress receptions to complete by polling
+ *      RXBUSY (ESTAT<13>) until it is clear.
+ *   4. Wait for any current transmission operation to complete by verifying
+ *      that TXRTS (ECON1<1>) is clear.
+ *   5. Power-down the PHY by setting the PSLEEP bit (PHCON1<11>).
+ *   6. Power-down the Ethernet interface by clearing
+ *      ETHEN and STRCH (ECON2<15,14>). Disabling the LED stretching behavior is
+ *      necessary to ensure no LEDs get trapped in a perpetually illuminated
+ *      state in the event they are being stretched on when ETHEN is cleared.
  *
- *   In Sleep mode, all registers and buffer memory will maintain their
- *   states. The ETH registers and buffer memory will still be accessible
- *   by the host controller. Additionally, the clock driver will continue
- *   to operate. The CLKOUT function will be unaffected.
+ * Note:
+ *   Instead of providing a powerup function, the job is done by enc_reset.
+ *   enc_ifup calls it anyway.
  *
  * Parameters:
  *   priv  - Reference to the driver state structure
@@ -2268,83 +2158,35 @@ static int enc_rmmac(struct uip_driver_s *dev, FAR const uint8_t *mac)
 
 static void enc_pwrsave(FAR struct enc_driver_s *priv)
 {
+  uint16_t regval;
+
   nllvdbg("Set PWRSV\n");
 
-  /* 1. Turn off packet reception by clearing ECON1.RXEN. */
+  /* 1. Turn off AES */
 
-  enc_bfcgreg(priv, ENC_ECON1, ECON1_RXEN);
+  enc_bfc(priv, ENC_EIR, EIR_CRYPTEN);
 
-  /* 2. Wait for any in-progress packets to finish being received by
-   *    polling ESTAT.RXBUSY. This bit should be clear before proceeding.
-   */
+  /* 2. Turn off packet reception */
 
-  if (enc_waitbreg(priv, ENC_ESTAT, ESTAT_RXBUSY, 0) == OK)
-    {
-      /* 3. Wait for any current transmissions to end by confirming
-       * ECON1.TXRTS is clear.
-       */
+  enc_bfc(priv, ENC_ECON1, ECON1_RXEN);
 
-      enc_waitbreg(priv, ENC_ECON1, ECON1_TXRTS, 0);
+  /* 3. Wait for pending reception to complete */
 
-      /* 4. Set ECON2.VRPS (if not already set). */
-      /* enc_bfsgreg(priv, ENC_ECON2, ECON2_VRPS); <-- Set in enc_reset() */
+  enc_waitreg(priv, ENC_ESTAT, ESTAT_RXBUSY, 0);
 
-      /* 5. Enter Sleep by setting ECON2.PWRSV. */
+  /* 4. Wait for any current transmissions to complete */
 
-      enc_bfsgreg(priv, ENC_ECON2, ECON2_PWRSV);
-    }
-}
+  enc_waitreg(priv, ENC_ECON1, ECON1_TXRTS, 0);
 
-/****************************************************************************
- * Function: enc_pwrfull
- *
- * Description:
- *   When normal operation is desired, the host controller must perform
- *   a slightly modified procedure:
- *
- *   1. Wake-up by clearing ECON2.PWRSV.
- *   2. Wait at least 300 ìs for the PHY to stabilize. To accomplish the
- *      delay, the host controller may poll ESTAT.CLKRDY and wait for it
- *      to become set.
- *   3. Restore receive capability by setting ECON1.RXEN.
- *
- *   After leaving Sleep mode, there is a delay of many milliseconds
- *   before a new link is established (assuming an appropriate link
- *   partner is present). The host controller may wish to wait until
- *   the link is established before attempting to transmit any packets.
- *   The link status can be determined by polling the PHSTAT2.LSTAT bit.
- *   Alternatively, the link change interrupt may be used if it is
- *   enabled.
- *
- * Parameters:
- *   priv  - Reference to the driver state structure
- *
- * Returned Value:
- *   None
- *
- * Assumptions:
- *
- ****************************************************************************/
- 
-static void enc_pwrfull(FAR struct enc_driver_s *priv)
-{
-  nllvdbg("Clear PWRSV\n");
+  /* 5. Power down the PHY */
 
-  /* 1. Wake-up by clearing ECON2.PWRSV. */
+  regval = enc_rdphy(priv, ENC_PHCON1);
+  regval |= PHCON1_PSLEEP;
+  enc_wrphy(priv, ENC_PHCON1, regval);
 
-  enc_bfcgreg(priv, ENC_ECON2, ECON2_PWRSV);
-  
-  /* 2. Wait at least 300 ìs for the PHY to stabilize. To accomplish the
-   * delay, the host controller may poll ESTAT.CLKRDY and wait for it to
-   * become set.
-   */
+  /* 6. Power down the Ethernet interface */
 
-  enc_waitbreg(priv, ENC_ESTAT, ESTAT_CLKRDY, ESTAT_CLKRDY);
-
-  /* 3. Restore receive capability by setting ECON1.RXEN.
-   *
-   * The caller will do this when it is read to receive packets
-   */
+  enc_bfc(priv, ENC_ECON2, ECON2_ETHEN | ECON2_STRCH);
 }
 
 /****************************************************************************
@@ -2354,6 +2196,7 @@ static void enc_pwrfull(FAR struct enc_driver_s *priv)
  *   Set the MAC address to the configured value.  This is done after ifup
  *   or after a TX timeout.  Note that this means that the interface must
  *   be down before configuring the MAC addr.
+ *   If the MAC address is 0 in all digits, the ENCX24J600's MAC is read out.
  *
  * Parameters:
  *   priv  - Reference to the driver state structure
@@ -2367,28 +2210,47 @@ static void enc_pwrfull(FAR struct enc_driver_s *priv)
 
 static void enc_setmacaddr(FAR struct enc_driver_s *priv)
 {
-  /* Program the hardware with it's MAC address (for filtering).
-   *   MAADR1  MAC Address Byte 1 (MAADR<47:40>), OUI Byte 1
-   *   MAADR2  MAC Address Byte 2 (MAADR<39:32>), OUI Byte 2
-   *   MAADR3  MAC Address Byte 3 (MAADR<31:24>), OUI Byte 3
-   *   MAADR4  MAC Address Byte 4 (MAADR<23:16>)
-   *   MAADR5  MAC Address Byte 5 (MAADR<15:8>)
-   *   MAADR6  MAC Address Byte 6 (MAADR<7:0>)
-   */
+  uint16_t regval;
+  uint8_t *mac = priv->dev.d_mac.ether_addr_octet;
+  struct ether_addr zmac;
 
-  enc_wrbreg(priv, ENC_MAADR1, priv->dev.d_mac.ether_addr_octet[0]);
-  enc_wrbreg(priv, ENC_MAADR2, priv->dev.d_mac.ether_addr_octet[1]);
-  enc_wrbreg(priv, ENC_MAADR3, priv->dev.d_mac.ether_addr_octet[2]);
-  enc_wrbreg(priv, ENC_MAADR4, priv->dev.d_mac.ether_addr_octet[3]);
-  enc_wrbreg(priv, ENC_MAADR5, priv->dev.d_mac.ether_addr_octet[4]);
-  enc_wrbreg(priv, ENC_MAADR6, priv->dev.d_mac.ether_addr_octet[5]);
+  memset(&zmac, 0, sizeof(zmac));
+
+  if (memcmp(&priv->dev.d_mac, &zmac, sizeof(zmac)) == 0)
+    {
+      /* No user defined MAC address. Read it from the device. */
+
+      nvdbg("Using ENCX24J600's built in MAC address\n");
+
+      regval = enc_rdreg(priv, ENC_MAADR1);
+      mac[0] = regval & 0xff;
+      mac[1] = regval >> 8;
+
+      regval = enc_rdreg(priv, ENC_MAADR2);
+      mac[2] = regval & 0xff;
+      mac[3] = regval >> 8;
+
+      regval = enc_rdreg(priv, ENC_MAADR3);
+      mac[4] = regval & 0xff;
+      mac[5] = regval >> 8;
+    }
+  else
+    {
+      /* There is a user defined mac address. Write it to the ENCXJ600 */
+
+      nvdbg("Using an user defined MAC address\n");
+
+      enc_wrreg(priv, ENC_MAADR1, (uint16_t)mac[1] << 8 | (uint16_t)mac[0]);
+      enc_wrreg(priv, ENC_MAADR2, (uint16_t)mac[3] << 8 | (uint16_t)mac[2]);
+      enc_wrreg(priv, ENC_MAADR3, (uint16_t)mac[5] << 8 | (uint16_t)mac[4]);
+    }
 }
 
 /****************************************************************************
  * Function: enc_reset
  *
  * Description:
- *   Stop, reset, re-initialize, and restart the ENC28J60.  This is done
+ *   Stop, reset, re-initialize, and restart the ENCX24J600.  This is done
  *   initially, on ifup, and after a TX timeout.
  *
  * Parameters:
@@ -2403,119 +2265,95 @@ static void enc_setmacaddr(FAR struct enc_driver_s *priv)
 
 static int enc_reset(FAR struct enc_driver_s *priv)
 {
-  uint8_t regval;
+  int i;
+  int ret;
+  uint16_t regval;
 
   nlldbg("Reset\n");
 
-  /* Configure SPI for the ENC28J60 */
+  /* configure SPI for the ENCX24J600 */
 
   enc_configspi(priv->spi);
 
-  /* Reset the ENC28J60 */
-
-  enc_src(priv);
-
-  /* Initialize ECON1: Clear ECON1 */
-
-  enc_wrgreg(priv, ENC_ECON1, 0x00);
-
-  /* Initialize ECON2: Enable address auto increment and voltage
-   * regulator powersave.
-   */
-
-  enc_wrgreg(priv, ENC_ECON2, ECON2_AUTOINC | ECON2_VRPS);
-
-  /* Initialize receive buffer.
-   * First, set the receive buffer start address.
-   */
-
-  priv->nextpkt = PKTMEM_RX_START;
-  enc_wrbreg(priv, ENC_ERXSTL, PKTMEM_RX_START & 0xff);
-  enc_wrbreg(priv, ENC_ERXSTH, PKTMEM_RX_START >> 8);
-
-  /* Set the receive data pointer */
-
-  enc_wrbreg(priv, ENC_ERXRDPTL, PKTMEM_RX_START & 0xff);
-  enc_wrbreg(priv, ENC_ERXRDPTH, PKTMEM_RX_START >> 8);
-
-  /* Set the receive buffer end. */
-
-  enc_wrbreg(priv, ENC_ERXNDL, PKTMEM_RX_END & 0xff);
-  enc_wrbreg(priv, ENC_ERXNDH, PKTMEM_RX_END >> 8);
-
-  /* Set transmit buffer start. */
-
-  enc_wrbreg(priv, ENC_ETXSTL, PKTMEM_TX_START & 0xff);
-  enc_wrbreg(priv, ENC_ETXSTH, PKTMEM_TX_START >> 8);
-
-  /* Check if we are actually communicating with the ENC28J60.  If its
-   * 0x00 or 0xff, then we are probably not communicating correctly
-   * via SPI.
-   */
-
-  regval = enc_rdbreg(priv, ENC_EREVID);
-  if (regval == 0x00 || regval == 0xff)
+  do
     {
-      nlldbg("Bad Rev ID: %02x\n", regval);
+      enc_wrreg(priv, ENC_EUDAST, 0x1234);
+    }
+  while (enc_rdreg(priv, ENC_EUDAST) != 0x1234);
+
+  /* wait for clock to become ready */
+
+  ret = enc_waitreg(priv, ENC_ESTAT, ESTAT_CLKRDY, ESTAT_CLKRDY);
+
+  if (ret != OK)
+    {
+      nlldbg("ERROR: encx24j600 clock failed to become ready\n");
       return -ENODEV;
     }
 
-  nllvdbg("Rev ID: %02x\n", regval);
+  /* reset the ENCX24J600 */
 
-  /* Set filter mode: unicast OR broadcast AND crc valid */
+  enc_setethrst(priv);
 
-  enc_wrbreg(priv, ENC_ERXFCON, ERXFCON_UCEN | ERXFCON_CRCEN | ERXFCON_BCEN);
+  /* check if EUDAST has been reset to 0 */
 
-  /* Enable MAC receive */
+  regval = enc_rdreg(priv, ENC_EUDAST);
 
-  enc_wrbreg(priv, ENC_MACON1, MACON1_MARXEN | MACON1_TXPAUS | MACON1_RXPAUS);
+  if (regval != 0x0000)
+    {
+      nlldbg("ERROR: encx24j600 seems not to be reset properly\n");
+      return -ENODEV;
+    }
 
-  /* Enable automatic padding and CRC operations */
+  /**
+   * Wait at least 256 Î¼s for the PHY registers and PHY status bits to become
+   * available.
+   */
+  up_udelay(256);
 
-#ifdef CONFIG_ENC28J60_HALFDUPLEX
-  enc_wrbreg(priv, ENC_MACON3, MACON3_PADCFG0 | MACON3_TXCRCEN | MACON3_FRMLNEN);
-  enc_wrbreg(priv, ENC_MACON4, MACON4_DEFER);        /* Defer transmission enable */
+  /* Initialize receive and transmit buffers  */
 
-  /* Set Non-Back-to-Back Inter-Packet Gap */
+  priv->nextpkt = PKTMEM_RX_START;
+  enc_wrreg(priv, ENC_ERXST, PKTMEM_RX_START);
 
-  enc_wrbreg(priv, ENC_MAIPGL, 0x12);
-  enc_wrbreg(priv, ENC_MAIPGH, 0x0c);
+  /* Program the Tail Pointer, ERXTAIL, to the last even address of the buffer */
 
-  /* Set Back-to-Back Inter-Packet Gap */
- 
-  enc_wrbreg(priv, ENC_MABBIPG, 0x12);
-#else
-  /* Set filter mode: unicast OR broadcast AND crc valid AND Full Duplex */
+  enc_wrreg(priv, ENC_ERXTAIL, PKTMEM_RX_END);
 
-  enc_wrbreg(priv, ENC_MACON3,
-             MACON3_PADCFG0 | MACON3_TXCRCEN | MACON3_FRMLNEN | MACON3_FULDPX);
+  sq_init(&priv->freedescr);
+  sq_init(&priv->txqueue);
 
-  /* Set Non-Back-to-Back Inter-Packet Gap */
+  for (i = 0; i < PKTMEM_NDESCR; i++)
+    {
+      priv->descralloc[i].addr = PKTMEM_START + PKTMEM_ALIGNED_BUFSIZE * i;
+      sq_addlast((sq_entry_t*)&priv->descralloc[i], &priv->freedescr);
+    }
 
-  enc_wrbreg(priv, ENC_MAIPGL, 0x12);
+  /* "Typically, when using auto-negotiation, users should write 0x05E1 to PHANA
+   * to advertise flow control capability."
+   */
 
-  /* Set Back-to-Back Inter-Packet Gap */
+  enc_wrphy(priv, ENC_PHANA, PHANA_ADPAUS0 | PHANA_AD10FD | PHANA_AD10 |
+            PHANA_AD100FD | PHANA_AD100 | PHANA_ADIEEE0);
 
-  enc_wrbreg(priv, ENC_MABBIPG, 0x15);
-#endif
+  /* restart auto-negotiation */
+
+  enc_wrphy(priv, ENC_PHCON1, PHCON1_RENEG);
+
+  do
+    {
+      regval = enc_rdphy(priv, ENC_PHSTAT1);
+    }
+  while ((regval & PHSTAT1_ANDONE) != 0);
+
+  nlldbg("Auto-negotation completed\n");
+
+  enc_linkstatus(priv);
 
   /* Set the maximum packet size which the controller will accept */
 
-  enc_wrbreg(priv, ENC_MAMXFLL, CONFIG_NET_BUFSIZE & 0xff);
-  enc_wrbreg(priv, ENC_MAMXFLH, CONFIG_NET_BUFSIZE >> 8);
+  enc_wrreg(priv, ENC_MAMXFL, CONFIG_NET_BUFSIZE);
 
-  /* Configure LEDs (No, just use the defaults for now) */
-  /* enc_wrphy(priv, ENC_PHLCON, ??); */
-
-  /* Setup up PHCON1 & 2 */
-  
-#ifdef CONFIG_ENC28J60_HALFDUPLEX
-  enc_wrphy(priv, ENC_PHCON1, 0x00);
-  enc_wrphy(priv, ENC_PHCON2, PHCON2_HDLDIS);
-#else
-  enc_wrphy(priv, ENC_PHCON1, PHCON1_PDPXMD);
-  enc_wrphy(priv, ENC_PHCON2, 0x00);
-#endif
   return OK;
 }
 
@@ -2527,15 +2365,15 @@ static int enc_reset(FAR struct enc_driver_s *priv)
  * Function: enc_initialize
  *
  * Description:
- *   Initialize the Ethernet driver.  The ENC28J60 device is assumed to be
+ *   Initialize the Ethernet driver.  The ENCX24J600 device is assumed to be
  *   in the post-reset state upon entry to this function.
  *
  * Parameters:
- *   spi   - A reference to the platform's SPI driver for the ENC28J60
+ *   spi   - A reference to the platform's SPI driver for the ENCX24J600
  *   lower - The MCU-specific interrupt used to control low-level MCU
- *           functions (i.e., ENC28J60 GPIO interrupts).
- *   devno - If more than one ENC28J60 is supported, then this is the
- *           zero based number that identifies the ENC28J60;
+ *           functions (i.e., ENCX24J600 GPIO interrupts).
+ *   devno - If more than one ENCX24J600 is supported, then this is the
+ *           zero based number that identifies the ENCX24J600;
  *
  * Returned Value:
  *   OK on success; Negated errno on failure.
@@ -2545,18 +2383,19 @@ static int enc_reset(FAR struct enc_driver_s *priv)
  ****************************************************************************/
 
 int enc_initialize(FAR struct spi_dev_s *spi,
-                   FAR const struct enc_lower_s *lower, unsigned int devno)
+                          FAR const struct enc_lower_s *lower,
+                          unsigned int devno)
 {
   FAR struct enc_driver_s *priv;
 
-  DEBUGASSERT(devno < CONFIG_ENC28J60_NINTERFACES);
-  priv = &g_enc28j60[devno];
+  DEBUGASSERT(devno < CONFIG_ENCX24J600_NINTERFACES);
+  priv = &g_encx24j600[devno];
 
   /* Initialize the driver structure */
 
-  memset(g_enc28j60, 0, CONFIG_ENC28J60_NINTERFACES*sizeof(struct enc_driver_s));
-  priv->dev.d_ifup    = enc_ifup;     /* I/F down callback */
-  priv->dev.d_ifdown  = enc_ifdown;   /* I/F up (new IP address) callback */
+  memset(g_encx24j600, 0, CONFIG_ENCX24J600_NINTERFACES*sizeof(struct enc_driver_s));
+  priv->dev.d_ifup    = enc_ifup;     /* I/F up (new IP address) callback */
+  priv->dev.d_ifdown  = enc_ifdown;   /* I/F down callback */
   priv->dev.d_txavail = enc_txavail;  /* New TX data callback */
 #ifdef CONFIG_NET_IGMP
   priv->dev.d_addmac  = enc_addmac;   /* Add multicast MAC address */
@@ -2572,11 +2411,9 @@ int enc_initialize(FAR struct spi_dev_s *spi,
   priv->lower        = lower;         /* Save the low-level MCU interface */
 
   /* The interface should be in the down state.  However, this function is called
-   * too early in initalization to perform the ENC28J60 reset in enc_ifdown.  We
+   * too early in initalization to perform the ENCX24J600 reset in enc_ifdown.  We
    * are depending upon the fact that the application level logic will call enc_ifdown
-   * later to reset the ENC28J60.  NOTE:  The MAC address will not be set up until
-   * enc_ifup() is called. That gives the app time to set the MAC address before
-   * bringing the interface up.
+   * later to reset the ENCX24J600.
    */
 
   priv->ifstate = ENCSTATE_UNINIT;
@@ -2590,6 +2427,10 @@ int enc_initialize(FAR struct spi_dev_s *spi,
       return -EAGAIN;
     }
 
+  /* Power down the device */
+
+  enc_pwrsave(priv);
+
   /* Register the device with the OS so that socket IOCTLs can be performed */
 
   return netdev_register(&priv->dev);
@@ -2599,12 +2440,12 @@ int enc_initialize(FAR struct spi_dev_s *spi,
  * Function: enc_stats
  *
  * Description:
- *   Return accumulated ENC28J60 statistics.  Statistics are cleared after
+ *   Return accumulated ENCX24J600 statistics.  Statistics are cleared after
  *   being returned.
  *
  * Parameters:
- *   devno - If more than one ENC28J60 is supported, then this is the
- *           zero based number that identifies the ENC28J60;
+ *   devno - If more than one ENCX24J600 is supported, then this is the
+ *           zero based number that identifies the ENCX24J600;
  *   stats - The user-provided location to return the statistics.
  *
  * Returned Value:
@@ -2614,14 +2455,14 @@ int enc_initialize(FAR struct spi_dev_s *spi,
  *
  ****************************************************************************/
 
-#ifdef CONFIG_ENC28J60_STATS
+#ifdef CONFIG_ENCX24J600_STATS
 int enc_stats(unsigned int devno, struct enc_stats_s *stats)
 {
   FAR struct enc_driver_s *priv ;
   irqstate_t flags;
 
-  DEBUGASSERT(devno < CONFIG_ENC28J60_NINTERFACES);
-  priv = &g_enc28j60[devno];
+  DEBUGASSERT(devno < CONFIG_ENCX24J600_NINTERFACES);
+  priv = &g_encx24j600[devno];
 
   /* Disable the Ethernet interrupt */
 
@@ -2632,5 +2473,4 @@ int enc_stats(unsigned int devno, struct enc_stats_s *stats)
   return OK;
 }
 #endif
-#endif /* CONFIG_NET && CONFIG_ENC28J60_NET */
-
+#endif /* CONFIG_NET && CONFIG_ENCX24J600_NET */
