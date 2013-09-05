@@ -401,7 +401,7 @@ Creating and Using NORBOOT
        (gdb) mon go                   # And jump into NOR flash
 
       The norboot program can also be configured to jump directly into
-      NOR FLASH with out requiring the the final halt and go, but since I
+      NOR FLASH without requiring the final halt and go, but since I
       have been debugging the early boot sequence, the above sequence has
       been most convenient for me.
 
@@ -489,7 +489,7 @@ Serial Consoles
     PB28 RXD1       PIO_USART1_RXD
     PB26 CTS1       PIO_USART1_CTS
 
-    NOTE: Debug TX and RX pins also go the the ADM3312EARU, but I am
+    NOTE: Debug TX and RX pins also go to the ADM3312EARU, but I am
     uncertain of the functionality.
 
     -------------------------------
@@ -1207,6 +1207,8 @@ Configurations
                                                : Defaults for values probably OK for both
         Device Drivers
           CONFIG_USBHOST=y                     : Enable USB host support
+          CONFIG_USBHOST_INT_DISABLE=y         : Interrupt endpoints not needed
+          CONFIG_USBHOST_ISOC_DISABLE=y        : Isochronous endpoints not needed
 
         Device Drivers -> USB Host Driver Support
           CONFIG_USBHOST_ISOC_DISABLE=y        : Isochronous endpoints not used
@@ -1215,8 +1217,72 @@ Configurations
         Library Routines
           CONFIG_SCHED_WORKQUEUE               : Worker thread support is required
 
-       Application Configuration -> NSH Library
-         CONFIG_NSH_ARCHINIT=y                 : NSH board-initialization
+        Application Configuration -> NSH Library
+          CONFIG_NSH_ARCHINIT=y                 : NSH board-initialization
+
+    10) Support the USB high-speed EHCI host driver can be enabled by changing
+        the NuttX configuration file as follows.  If EHCI is enabled by itself,
+
+        Device Drivers -> USB Device Driver Support
+          CONFIG_USBDEV=y                       : Enable USB device support
+          CONFIG_USBDEV_DMA=y                   : Device uses DMA
+          CONFIG_USBDEV_DUALSPEED=y             : Device support High and Full Speed
+
+        System Type -> ATSAMA5 Peripheral Support
+          CONFIG_SAMA5_UDPHS=y                  : Enable UDPHS High Speed USB device
+
+        Application Configuration -> NSH Library
+          CONFIG_NSH_ARCHINIT=y                 : NSH board-initialization
+
+        You also need to select a device-side class driver for the USB device,
+        This will select the CDC/ACM serial device.  Defaults for the other
+        options should be okay.
+
+        Device Drivers -> USB Device Driver Support
+          CONFIG_CDCACM=y                       : Enable the CDC/ACM device
+
+        The following setting enables an example that can can be used to
+        control the CDC/ACM device.  It will add two new NSH commands:
+        (1) sercon will connect the USB serial device (creating /dev/ttyACM0),
+        and (2) serdis which will disconnect the USB serial device (destroying
+        /dev/ttyACM0).
+
+        Application Configuration -> Examples:
+          CONFIG_EXAMPLES_CDCACM=y              : Enable an CDC/ACM example
+
+        Debugging USB Device.  There is normal console debug output available
+        that can be enabled with CONFIG_DEBUG + CONFIG_DEBUG_USB.  However,
+        USB device operation is very time critical and enabling this debug
+        output WILL interfere with the operation of the UDPHS.  USB device
+        tracing is a less invasive way to get debug information:  If tracing
+        is enabled, the USB device will save encoded trace output in in-memory
+        buffer; if the USB monitor is also enabled, that trace buffer will be
+        periodically emptied and dumped to the system logging device (the
+        serial console in this configuration):
+
+        Device Drivers -> "USB Device Driver Support:
+          CONFIG_USBDEV_TRACE=y                   : Enable USB trace feature
+          CONFIG_USBDEV_TRACE_NRECORDS=256        : Buffer 256 records in memory
+
+        Application Configuration -> NSH LIbrary:
+          CONFIG_NSH_USBDEV_TRACE=n               : No builtin tracing from NSH
+          CONFIG_NSH_ARCHINIT=y                   : Automatically start the USB monitor
+
+        Application Configuration -> System NSH Add-Ons:
+          CONFIG_SYSTEM_USBMONITOR=y              : Enable the USB monitor daemon
+          CONFIG_SYSTEM_USBMONITOR_STACKSIZE=2048 : USB monitor daemon stack size
+          CONFIG_SYSTEM_USBMONITOR_PRIORITY=50    : USB monitor daemon priority
+          CONFIG_SYSTEM_USBMONITOR_INTERVAL=1     : Dump trace data every second
+          CONFIG_SYSTEM_USBMONITOR_TRACEINIT=y    : Enable TRACE output
+          CONFIG_SYSTEM_USBMONITOR_TRACECLASS=y
+          CONFIG_SYSTEM_USBMONITOR_TRACETRANSFERS=y
+          CONFIG_SYSTEM_USBMONITOR_TRACECONTROLLER=y
+          CONFIG_SYSTEM_USBMONITOR_TRACEINTERRUPTS=y
+
+       NOTE: If USB debug output is also enabled, both outpus will appear
+       on the serial console.  However, the debug output will be
+       asynchronous with the trace output and, hence, difficult to
+       interpret.
 
     STATUS:
       2013-7-19:  This configuration (as do the others) run at 396MHz.
@@ -1283,13 +1349,17 @@ Configurations
       2013-8-20:  Added description to add EHCI to the configuration.  At
         present, however, EHCI is still a work in progress and not ready for
         prime time.
-      2013-8-26: EHCI is still non-functional.  After days of work, it is
-        able to exchange a SETUP transfer or two, but it still does not make
-        it through the full enumeration sequence.
-        Nor does the hand-off of high speed devices to OHCI work.  In this
-        case, OHCI gets the port, but the port is reset, lost by OCHI and
-        returned to EHCI.  EHCI sees the full-speed port and hands it off
-        to OHCI and this sequence continues forever.
+      2013-8-26:
+        The hand-off of full speed devices to OHCI does not work. In this
+        case, OHCI gets the port, but the port is reset, lost by OHCI and
+        returned to EHCI.  EHCI sees the full-speed port and hands it off to
+        OHCI and this sequence continues forever.
+      2013-8-28: EHCI is partially functional.  It is able to mount a high-
+        speed USB FLASH drive using the Mass Storage Class (MSC) interface.
+
+      2013-8-31: Added description to add UDPHS high-speed USB device
+        support.  That function is still, however, a long way from being
+        functional.
 
   ostest:
     This configuration directory, performs a simple OS test using

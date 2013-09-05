@@ -103,10 +103,7 @@
 #  undef CONFIG_SAMA5_EHCI_REGDEBUG
 #endif
 
-/* Periodic transfers will be supported later */
-
-#undef CONFIG_USBHOST_INT_DISABLE
-#define CONFIG_USBHOST_INT_DISABLE 1
+/* Isochronous transfers are not currently supported */
 
 #undef CONFIG_USBHOST_ISOC_DISABLE
 #define CONFIG_USBHOST_ISOC_DISABLE 1
@@ -297,7 +294,6 @@ static void sam_qtd_free(struct sam_qtd_s *qtd);
 
 static int sam_qh_foreach(struct sam_qh_s *qh, uint32_t **bp,
          foreach_qh_t handler, void *arg);
-static int sam_qh_forall(foreach_qh_t handler, void *arg);
 static int sam_qtd_foreach(struct sam_qh_s *qh, foreach_qtd_t handler,
          void *arg);
 static int sam_qtd_discard(struct sam_qtd_s *qtd, uint32_t **bp, void *arg);
@@ -319,20 +315,16 @@ static void sam_qtd_print(struct sam_qtd_s *qtd);
 static void sam_qh_print(struct sam_qh_s *qh);
 static int sam_qtd_dump(struct sam_qtd_s *qtd, uint32_t **bp, void *arg);
 static int sam_qh_dump(struct sam_qh_s *qh, uint32_t **bp, void *arg);
-#if 0 /* not used */
-static int sam_qh_dumpall(void);
-#endif
 #else
 #  define sam_qtd_print(qtd)
 #  define sam_qh_print(qh)
 #  define sam_qtd_dump(qtd, bp, arg) OK
 #  define sam_qh_dump(qh, bp, arg)   OK
-#  define sam_qh_dumpall()           OK
 #endif
 
 static int sam_ioc_setup(struct sam_rhport_s *rhport, struct sam_epinfo_s *epinfo);
 static int sam_ioc_wait(struct sam_epinfo_s *epinfo);
-static void sam_qh_enqueue(struct sam_qh_s *qh);
+static void sam_qh_enqueue(struct sam_qh_s *qhead, struct sam_qh_s *qh);
 static struct sam_qh_s *sam_qh_create(struct sam_rhport_s *rhport,
          struct sam_epinfo_s *epinfo);
 static int sam_qtd_addbpl(struct sam_qtd_s *qtd, const void *buffer, size_t buflen);
@@ -344,6 +336,10 @@ static struct sam_qtd_s *sam_qtd_statusphase(uint32_t tokenbits);
 static ssize_t sam_async_transfer(struct sam_rhport_s *rhport,
          struct sam_epinfo_s *epinfo, const struct usb_ctrlreq_s *req,
          uint8_t *buffer, size_t buflen);
+#ifndef CONFIG_USBHOST_INT_DISABLE
+static ssize_t sam_intr_transfer(struct sam_rhport_s *rhport,
+         struct sam_epinfo_s *epinfo, uint8_t *buffer, size_t buflen);
+#endif
 
 /* Interrupt Handling **********************************************************/
 
@@ -408,13 +404,18 @@ static struct sam_qh_s g_asynchead __attribute__ ((aligned(32)));
 #ifndef CONFIG_USBHOST_INT_DISABLE
 /* The head of the periodic queue */
 
-static struct sam_qh_s g_perhead   __attribute__ ((aligned(32)));
+static struct sam_qh_s g_intrhead   __attribute__ ((aligned(32)));
 
 /* The frame list */
 
+#ifdef CONFIG_SAMA5_EHCI_PREALLOCATE
 static uint32_t g_framelist[FRAME_LIST_SIZE] __attribute__ ((aligned(4096)));
+#else
+static uint32_t *g_framelist;
+#endif
 #endif
 
+#ifdef CONFIG_SAMA5_EHCI_PREALLOCATE
 /* Pools of pre-allocated data structures.  These will all be linked into the
  * free lists within g_ehci.  These must all be aligned to 32-byte boundaries
  */
@@ -428,6 +429,21 @@ static struct sam_qh_s g_qhpool[CONFIG_SAMA5_EHCI_NQHS]
 
 static struct sam_qtd_s g_qtdpool[CONFIG_SAMA5_EHCI_NQTDS]
                         __attribute__ ((aligned(32)));
+
+#else
+/* Pools of dynamically data structures.  These will all be linked into the
+ * free lists within g_ehci.  These must all be aligned to 32-byte boundaries
+ */
+
+/* Queue Head (QH) pool */
+
+static struct sam_qh_s *g_qhpool;
+
+/* Queue Element Transfer Descriptor (qTD) pool */
+
+static struct sam_qtd_s *g_qtdpool;
+
+#endif
 
 /*******************************************************************************
  * Private Functions
@@ -824,7 +840,7 @@ static struct sam_qtd_s *sam_qtd_alloc(void)
   if (qtd)
     {
       g_ehci.qtdfree = ((struct sam_list_s *)qtd)->flink;
-      memset(qtd, 0, sizeof(struct sam_list_s));
+      memset(qtd, 0, sizeof(struct sam_qtd_s));
     }
 
   return qtd;
@@ -933,34 +949,6 @@ static int sam_qh_foreach(struct sam_qh_s *qh, uint32_t **bp, foreach_qh_t handl
     }
 
   return OK;
-}
-
-/*******************************************************************************
- * Name: sam_qh_forall
- *
- * Description:
- *   Setup and call sam_qh_foreach to that every element of the asynchronous
- *   queue is examined.
- *
- * Assumption:  The caller holds the EHCI exclsem
- *
- *******************************************************************************/
-
-static int sam_qh_forall(foreach_qh_t handler, void *arg)
-{
-  struct sam_qh_s *qh;
-  uint32_t *bp;
-
-  /* Set the back pointer to the forward qTD pointer of the asynchronous
-   * queue head.
-   */
-
-  bp = (uint32_t *)&g_asynchead.hw.hlp;
-  qh = (struct sam_qh_s *)sam_virtramaddr(sam_swap32(*bp) & QH_HLP_MASK);
-
-  /* Then traverse and operate on every QH and qTD in the list */
-
-  return sam_qh_foreach(qh, &bp, handler, arg);
 }
 
 /*******************************************************************************
@@ -1162,11 +1150,18 @@ static int sam_qh_invalidate(struct sam_qh_s *qh)
 static int sam_qtd_flush(struct sam_qtd_s *qtd, uint32_t **bp, void *arg)
 {
   /* Flush the D-Cache, i.e., make the contents of the memory match the contents
-   * of the D-Cache in the specified address range.
+   * of the D-Cache in the specified address range.  If debug is enabled, then
+   * we will also invalidate the contents of the D-cache so that we can examine
+   * the modified memory contents in the event of a failure.
    */
 
-  cp15_coherent_dcache((uintptr_t)&qtd->hw,
-                       (uintptr_t)&qtd->hw + sizeof(struct ehci_qtd_s));
+  cp15_clean_dcache((uintptr_t)&qtd->hw,
+                    (uintptr_t)&qtd->hw + sizeof(struct ehci_qtd_s));
+#ifdef CONFIG_DEBUG_USB
+  cp15_invalidate_dcache((uintptr_t)&qtd->hw,
+                         (uintptr_t)&qtd->hw + sizeof(struct ehci_qtd_s));
+#endif
+
   return OK;
 }
 
@@ -1180,10 +1175,18 @@ static int sam_qtd_flush(struct sam_qtd_s *qtd, uint32_t **bp, void *arg)
 
 static int sam_qh_flush(struct sam_qh_s *qh)
 {
-  /* Flush the QH first */
+  /* Flush the QH first.  Normally this just means writing the contents of the
+   * D-cache to RAM.  If debug is enabled, then we will also invalidate the
+   * contents of the D-cache so that we can examine the modified memory contents
+   * in the event of a failure.
+   */
 
-  cp15_coherent_dcache((uintptr_t)&qh->hw,
-                       (uintptr_t)&qh->hw + sizeof(struct ehci_qh_s));
+  cp15_clean_dcache((uintptr_t)&qh->hw,
+                    (uintptr_t)&qh->hw + sizeof(struct ehci_qh_s));
+#ifdef CONFIG_DEBUG_USB
+  cp15_invalidate_dcache((uintptr_t)&qh->hw,
+                         (uintptr_t)&qh->hw + sizeof(struct ehci_qh_s));
+#endif
 
   /* Then flush all of the qTD entries in the queue */
 
@@ -1292,26 +1295,6 @@ static int sam_qh_dump(struct sam_qh_s *qh, uint32_t **bp, void *arg)
 #endif
 
 /*******************************************************************************
- * Name: sam_qh_dumpall
- *
- * Description:
- *   Set the request for the IOC event well BEFORE enabling the transfer (as
- *   soon as we are absolutely committed to the to avoid transfer).  We do this
- *   to minimize race conditions.  This logic would have to be expanded if we
- *   want to have more than one packet in flight at a time!
- *
- *******************************************************************************/
-
-#ifdef CONFIG_SAMA5_EHCI_REGDEBUG
-#if 0 /* not used */
-static int sam_qh_dumpall(void)
-{
-  return sam_qh_forall(sam_qh_dump, NULL);
-}
-#endif
-#endif
-
-/*******************************************************************************
  * Name: sam_ioc_setup
  *
  * Description:
@@ -1385,11 +1368,11 @@ static int sam_ioc_wait(struct sam_epinfo_s *epinfo)
  *
  *******************************************************************************/
 
-static void sam_qh_enqueue(struct sam_qh_s *qh)
+static void sam_qh_enqueue(struct sam_qh_s *qhead, struct sam_qh_s *qh)
 {
   uintptr_t physaddr;
 
-  /* Set the internal fqp field.  When we transverse the the QH list later,
+  /* Set the internal fqp field.  When we transverse the QH list later,
    * we need to know the correct place to start because the overlay may no
    * longer point to the first qTD entry.
    */
@@ -1403,7 +1386,7 @@ static void sam_qh_enqueue(struct sam_qh_s *qh)
    * attached qTDs to RAM.
    */
 
-  qh->hw.hlp = g_asynchead.hw.hlp;
+  qh->hw.hlp = qhead->hw.hlp;
   sam_qh_flush(qh);
 
   /* Then set the new QH as the first QH in the asychronous queue and flush the
@@ -1411,9 +1394,9 @@ static void sam_qh_enqueue(struct sam_qh_s *qh)
    */
 
   physaddr = (uintptr_t)sam_physramaddr((uintptr_t)qh);
-  g_asynchead.hw.hlp = sam_swap32(physaddr | QH_HLP_TYP_QH);
-  cp15_coherent_dcache((uintptr_t)&g_asynchead.hw,
-                       (uintptr_t)&g_asynchead.hw + sizeof(struct ehci_qh_s));
+  qhead->hw.hlp = sam_swap32(physaddr | QH_HLP_TYP_QH);
+  cp15_clean_dcache((uintptr_t)&qhead->hw,
+                    (uintptr_t)&qhead->hw + sizeof(struct ehci_qh_s));
 }
 
 /*******************************************************************************
@@ -1484,7 +1467,7 @@ static struct sam_qh_s *sam_qh_create(struct sam_rhport_s *rhport,
    *
    * FIELD    DESCRIPTION                     VALUE/SOURCE
    * -------- ------------------------------- --------------------
-   * SSMASK   Interrupt Schedule Mask         0
+   * SSMASK   Interrupt Schedule Mask         Depends on epinfo->xfrtype
    * SCMASK   Split Completion Mask           0
    * HUBADDR  Hub Address                     Always 0 for now
    * PORT     Port number                     RH port index + 1
@@ -1494,9 +1477,29 @@ static struct sam_qh_s *sam_qh_create(struct sam_rhport_s *rhport,
    * and HUB device address to be included here.
    */
 
-  regval = ((uint32_t)0                      << QH_EPCAPS_HUBADDR_SHIFT) |
-           ((uint32_t)(rhport->rhpndx + 1)   << QH_EPCAPS_PORT_SHIFT) |
-           ((uint32_t)1                      << QH_EPCAPS_MULT_SHIFT);
+  regval = ((uint32_t)0                    << QH_EPCAPS_HUBADDR_SHIFT) |
+           ((uint32_t)(rhport->rhpndx + 1) << QH_EPCAPS_PORT_SHIFT) |
+           ((uint32_t)1                    << QH_EPCAPS_MULT_SHIFT);
+
+#ifndef CONFIG_USBHOST_INT_DISABLE
+  if (epinfo->xfrtype == USB_EP_ATTR_XFER_INT)
+    {
+      /* Here, the S-Mask field in the queue head is set to 1, indicating
+       * that the transaction for the endpoint should be executed on the bus
+       * during micro-frame 0 of the frame.
+       *
+       * REVISIT: The polling interval should be controlled by the which
+       * entry is the framelist holds the QH pointer for a given micro-frame
+       * and the QH pointer should be replicated for different polling rates.
+       * This implementation currently just sets all frame_list entry to
+       * all the same interrupt queue.  That should work but will not give
+       * any control over polling rates.
+       */
+#warning REVISIT
+
+      regval |= ((uint32_t)1               << QH_EPCAPS_SSMASK_SHIFT);
+    }
+#endif
 
   qh->hw.epcaps = sam_swap32(regval);
 
@@ -1529,7 +1532,16 @@ static int sam_qtd_addbpl(struct sam_qtd_s *qtd, const void *buffer, size_t bufl
    * will be accessed for an OUT DMA.
    */
 
-  cp15_coherent_dcache((uintptr_t)buffer, (uintptr_t)buffer + buflen);
+  cp15_clean_dcache((uintptr_t)buffer, (uintptr_t)buffer + buflen);
+
+  /* If debug is enabled, then we will also invalidate the contents of the
+   * D-cache so that we can examine the modified memory contents in the event
+   * of a failure.
+   */
+
+#ifdef CONFIG_DEBUG_USB
+  cp15_invalidate_dcache((uintptr_t)buffer, (uintptr_t)buffer + buflen);
+#endif
 
   /* Loop, adding the aligned physical addresses of the buffer to the buffer page
    * list.  Only the first entry need not be aligned (because only the first
@@ -1554,7 +1566,7 @@ static int sam_qtd_addbpl(struct sam_qtd_s *qtd, const void *buffer, size_t bufl
 
       next = (physaddr + 4096) & ~4095;
 
-      /* How many bytes were included in the last buffer?  Was the the whole
+      /* How many bytes were included in the last buffer?  Was it the whole
        * thing?
        */
 
@@ -1803,21 +1815,15 @@ static ssize_t sam_async_transfer(struct sam_rhport_s *rhport,
   struct sam_qtd_s *qtd;
   uintptr_t physaddr;
   uint32_t *flink;
+  uint32_t *alt;
   uint32_t toggle;
-  uint32_t datapid;
+  uint32_t regval;
   int ret;
 
   uvdbg("RHport%d EP%d: buffer=%p, buflen=%d, req=%p\n",
         rhport->rhpndx+1, epinfo->epno, buffer, buflen, req);
 
   DEBUGASSERT(rhport && epinfo);
-
-  if (req != NULL)
-    {
-      uvdbg("req=%02x type=%02x value=%04x index=%04x\n",
-            req->req, req->type, sam_read16(req->value),
-            sam_read16(req->index));
-    }
 
   /* A buffer may or may be supplied with an EP0 SETUP transfer.  A buffer will
    * always be present for normal endpoint data transfers.
@@ -1832,21 +1838,6 @@ static ssize_t sam_async_transfer(struct sam_rhport_s *rhport,
     {
       udbg("ERROR: Device disconnected\n");
       return ret;
-    }
-
-  /* Get the data token direction */
-
-  datapid = QTD_TOKEN_PID_OUT;
-  if (req)
-    {
-      if ((req->type & USB_REQ_DIR_MASK) == USB_REQ_DIR_IN)
-        {
-          datapid = QTD_TOKEN_PID_IN;
-        }
-    }
-  else if (epinfo->dirin)
-    {
-      datapid = QTD_TOKEN_PID_IN;
     }
 
   /* Create and initialize a Queue Head (QH) structure for this transfer */
@@ -1867,7 +1858,16 @@ static ssize_t sam_async_transfer(struct sam_rhport_s *rhport,
   toggle = (uint32_t)epinfo->toggle << QTD_TOKEN_TOGGLE_SHIFT;
   ret    = -EIO;
 
-  /* Is the an EP0 SETUP request?  If req will be non-NULL */
+  /* Is the an EP0 SETUP request?  If so, req will be non-NULL and we will
+   * queue two or three qTDs:
+   *
+   *   1) One for the SETUP phase,
+   *   2) One for the DATA phase (if there is data), and
+   *   3) One for the STATUS phase.
+   *
+   * If this is not an EP0 SETUP request, then only a data transfer will be
+   * enqueued.
+   */
 
   if (req != NULL)
     {
@@ -1890,29 +1890,61 @@ static ssize_t sam_async_transfer(struct sam_rhport_s *rhport,
       /* Get the new forward link pointer and data toggle */
 
       flink  = &qtd->hw.nqp;
-      toggle = 0;
+      toggle = QTD_TOKEN_TOGGLE;
     }
 
   /* A buffer may or may be supplied with an EP0 SETUP transfer.  A buffer will
    * always be present for normal endpoint data transfers.
    */
 
+  alt = NULL;
   if (buffer && buflen > 0)
     {
-      /* Extra TOKEN bits include the data toggle, the data PID, and if there
-       * is no request, and indication to interrupt at the end of this
+      uint32_t tokenbits;
+      bool dirin;
+
+      /* Extra TOKEN bits include the data toggle, the data PID, and if
+       * there is no request, an indication to interrupt at the end of this
        * transfer.
        */
 
-      uint32_t tokenbits = toggle | datapid;
+      tokenbits = toggle;
 
-      /* If this is not an EP0 SETUP request, then nothing follows the data and
-       * we want the IOC interrupt when the data transfer completes.
+      /* Get the data token direction.
+       *
+       * If this is a SETUP request, use the direction contained in the
+       * request.  The IOC bit is not set.
        */
 
-      if (!req)
+      if (req)
         {
-          tokenbits |= QTD_TOKEN_IOC;
+          if ((req->type & USB_REQ_DIR_MASK) == USB_REQ_DIR_IN)
+            {
+              tokenbits |= QTD_TOKEN_PID_IN;
+              dirin      = true;
+            }
+          else
+            {
+              tokenbits |= QTD_TOKEN_PID_OUT;
+              dirin      = false;
+            }
+        }
+
+      /* Otherwise, the endpoint is uni-directional.  Get the direction from
+       * the epinfo structure.  Since this is not an EP0 SETUP request,
+       * nothing follows the data and we want the IOC interrupt when the
+       * data transfer completes.
+       */
+
+      else if (epinfo->dirin)
+        {
+          tokenbits |= (QTD_TOKEN_PID_IN | QTD_TOKEN_IOC);
+          dirin      = true;
+        }
+      else
+        {
+          tokenbits |= (QTD_TOKEN_PID_OUT | QTD_TOKEN_IOC);
+          dirin      = false;
         }
 
       /* Allocate a new Queue Element Transfer Descriptor (qTD) for the data
@@ -1934,7 +1966,20 @@ static ssize_t sam_async_transfer(struct sam_rhport_s *rhport,
       /* Set the forward link pointer to this new qTD */
 
       flink = &qtd->hw.nqp;
+
+      /* If this was an IN transfer, then setup a pointer alternate link.
+       * The EHCI hardware will use this link if a short packet is received.
+       */
+
+      if (dirin)
+        {
+          alt = &qtd->hw.alt;
+        }
     }
+
+  /* If this is an EP0 SETUP request, then enqueue one more qTD for the
+   * STATUS phase transfer.
+   */
 
   if (req != NULL)
     {
@@ -1974,11 +2019,32 @@ static ssize_t sam_async_transfer(struct sam_rhport_s *rhport,
 
       physaddr = sam_physramaddr((uintptr_t)qtd);
       *flink = sam_swap32(physaddr);
+
+      /* In an IN data qTD was also enqueued, then linke the data qTD's
+       * alternate pointer to this STATUS phase qTD in order to handle short
+       * transfers.
+       */
+
+      if (alt)
+        {
+          *alt = sam_swap32(physaddr);
+        }
     }
+
+  /* Disable the asynchronous schedule */
+
+  regval  = sam_getreg(&HCOR->usbcmd);
+  regval &= ~EHCI_USBCMD_ASEN;
+  sam_putreg(regval, &HCOR->usbcmd);
 
   /* Add the new QH to the head of the asynchronous queue list */
 
-  sam_qh_enqueue(qh);
+  sam_qh_enqueue(&g_asynchead, qh);
+
+  /* Re-enable the asynchronous schedule */
+
+  regval |= EHCI_USBCMD_ASEN;
+  sam_putreg(regval, &HCOR->usbcmd);
 
   /* Release the EHCI semaphore while we wait.  Other threads need the
    * opportunity to access the EHCI resources while we wait.
@@ -2024,11 +2090,192 @@ errout_with_iocwait:
 }
 
 /*******************************************************************************
+ * Name: sam_intr_transfer
+ *
+ * Description:
+ *   Process a IN or OUT request on any interrupt endpoint by inserting a qTD
+ *   into the periodic frame list.
+ *
+ *  Paragraph 4.10.7 "Adding Interrupt Queue Heads to the Periodic Schedule"
+ *    "The link path(s) from the periodic frame list to a queue head establishes
+ *     in which frames a transaction can be executed for the queue head. Queue
+ *     heads are linked into the periodic schedule so they are polled at
+ *     the appropriate rate. System software sets a bit in a queue head's
+ *     S-Mask to indicate which micro-frame with-in a 1 millisecond period a
+ *     transaction should be executed for the queue head. Software must ensure
+ *     that all queue heads in the periodic schedule have S-Mask set to a non-
+ *     zero value. An S-mask with a zero value in the context of the periodic
+ *     schedule yields undefined results.
+ *
+ *    "If the desired poll rate is greater than one frame, system software can
+ *     use a combination of queue head linking and S-Mask values to spread
+ *     interrupts of equal poll rates through the schedule so that the
+ *     periodic bandwidth is allocated and managed in the most efficient
+ *     manner possible."
+ *
+ *  Paragraph 4.6 "Periodic Schedule"
+ *
+ *    "The periodic schedule is used to manage all isochronous and interrupt
+ *     transfer streams. The base of the periodic schedule is the periodic
+ *     frame list. Software links schedule data structures to the periodic
+ *     frame list to produce a graph of scheduled data structures. The graph
+ *     represents an appropriate sequence of transactions on the USB. ...
+ *     isochronous transfers (using iTDs and siTDs) with a period of one are
+ *     linked directly to the periodic frame list. Interrupt transfers (are
+ *     managed with queue heads) and isochronous streams with periods other
+ *     than one are linked following the period-one iTD/siTDs. Interrupt
+ *     queue heads are linked into the frame list ordered by poll rate.
+ *     Longer poll rates are linked first (e.g. closest to the periodic
+ *     frame list), followed by shorter poll rates, with queue heads with a
+ *     poll rate of one, on the very end."
+ *
+ * Assumption:  The caller holds the EHCI exclsem.  The caller must be aware
+ *   that the EHCI exclsem will released while waiting for the transfer to
+ *   complete, but will be re-aquired when before returning.  The state of
+ *   EHCI resources could be very different upon return.
+ *
+ * Returned value:
+ *   On success, this function returns the number of bytes actually transferred.
+ *   For control transfers, this size includes the size of the control request
+ *   plus the size of the data (which could be short); For bulk transfers, this
+ *   will be the number of data bytes transfers (which could be short).
+ *
+ *******************************************************************************/
+
+#ifndef CONFIG_USBHOST_INT_DISABLE
+static ssize_t sam_intr_transfer(struct sam_rhport_s *rhport,
+                                 struct sam_epinfo_s *epinfo,
+                                 uint8_t *buffer, size_t buflen)
+{
+  struct sam_qh_s *qh;
+  struct sam_qtd_s *qtd;
+  uintptr_t physaddr;
+  uint32_t tokenbits;
+  uint32_t regval;
+  int ret;
+
+  uvdbg("RHport%d EP%d: buffer=%p, buflen=%d\n",
+        rhport->rhpndx+1, epinfo->epno, buffer, buflen);
+
+  DEBUGASSERT(rhport && epinfo && buffer && buflen > 0);
+
+  /* Set the request for the IOC event well BEFORE enabling the transfer. */
+
+  ret = sam_ioc_setup(rhport, epinfo);
+  if (ret != OK)
+    {
+      udbg("ERROR: Device disconnected\n");
+      return ret;
+    }
+
+  /* Create and initialize a Queue Head (QH) structure for this transfer */
+
+  qh = sam_qh_create(rhport, epinfo);
+  if (qh == NULL)
+    {
+      udbg("ERROR: sam_qh_create failed\n");
+      ret = -ENOMEM;
+      goto errout_with_iocwait;
+    }
+
+  /* Extra TOKEN bits include the data toggle, the data PID, and and indication to interrupt at the end of this
+   * transfer.
+   */
+
+  tokenbits = (uint32_t)epinfo->toggle << QTD_TOKEN_TOGGLE_SHIFT;
+
+  /* Get the data token direction. */
+
+  if (epinfo->dirin)
+    {
+      tokenbits |= (QTD_TOKEN_PID_IN | QTD_TOKEN_IOC);
+    }
+  else
+    {
+      tokenbits |= (QTD_TOKEN_PID_OUT | QTD_TOKEN_IOC);
+    }
+
+  /* Allocate a new Queue Element Transfer Descriptor (qTD) for the data
+   * buffer.
+   */
+
+  qtd = sam_qtd_dataphase(epinfo, buffer, buflen, tokenbits);
+  if (qtd == NULL)
+    {
+      udbg("ERROR: sam_qtd_dataphase failed\n");
+      goto errout_with_qh;
+    }
+
+  /* Link the new qTD to the QH. */
+
+  physaddr = sam_physramaddr((uintptr_t)qtd);
+  qh->hw.overlay.nqp = sam_swap32(physaddr);
+
+  /* Disable the periodic schedule */
+
+  regval  = sam_getreg(&HCOR->usbcmd);
+  regval &= ~EHCI_USBCMD_PSEN;
+  sam_putreg(regval, &HCOR->usbcmd);
+
+  /* Add the new QH to the head of the interrupt transfer list */
+
+  sam_qh_enqueue(&g_intrhead, qh);
+
+  /* Re-enable the periodic schedule */
+
+  regval |= EHCI_USBCMD_PSEN;
+  sam_putreg(regval, &HCOR->usbcmd);
+
+  /* Release the EHCI semaphore while we wait.  Other threads need the
+   * opportunity to access the EHCI resources while we wait.
+   *
+   * REVISIT:  Is this safe?  NO.  This is a bug and needs rethinking.
+   * We need to lock all of the port-resources (not EHCI common) until
+   * the transfer is complete.  But we can't use the common ECHI exclsem
+   * or we will deadlock while waiting (because the working thread that
+   * wakes this thread up needs the exclsem).
+   */
+#warning REVISIT
+  sam_givesem(&g_ehci.exclsem);
+
+  /* Wait for the IOC completion event */
+
+  ret = sam_ioc_wait(epinfo);
+
+  /* Re-aquire the ECHI semaphore.  The caller expects to be holding
+   * this upon return.
+   */
+
+  sam_takesem(&g_ehci.exclsem);
+
+  /* Did sam_ioc_wait() report an error? */
+
+  if (ret < 0)
+    {
+      udbg("ERROR: Transfer failed\n");
+      goto errout_with_iocwait;
+    }
+
+  /* Transfer completed successfully.  Return the number of bytes transferred */
+
+  return epinfo->xfrd;
+
+  /* Clean-up after an error */
+
+errout_with_qh:
+  sam_qh_discard(qh);
+errout_with_iocwait:
+  epinfo->iocwait = false;
+  return (ssize_t)ret;
+}
+#endif
+
+/*******************************************************************************
  * EHCI Interrupt Handling
  *******************************************************************************/
 
 /*******************************************************************************
- * Name: sam_qh_ioccheck
+ * Name: sam_qtd_ioccheck
  *
  * Description:
  *   This function is a sam_qtd_foreach() callback function.  It services one
@@ -2059,7 +2306,7 @@ static int sam_qtd_ioccheck(struct sam_qtd_s *qtd, uint32_t **bp, void *arg)
   **bp = qtd->hw.nqp;
 
   /* Subtract the number of bytes left untransferred.  The epinfo->xfrd
-   * field is initialized to the the total number of bytes to be transferred
+   * field is initialized to the total number of bytes to be transferred
    * (all qTDs in the list).  We subtract out the number of untransferred
    * bytes on each transfer and the final result will be the number of bytes
    * actually transferred.
@@ -2135,7 +2382,7 @@ static int sam_qh_ioccheck(struct sam_qh_s *qh, uint32_t **bp, void *arg)
   ret = sam_qtd_foreach(qh, sam_qtd_ioccheck, (void *)qh->epinfo);
   if (ret < 0)
     {
-      udbg("ERROR: sam_qh_forall failed: %d\n", ret);
+      udbg("ERROR: sam_qtd_foreach failed: %d\n", ret);
     }
 
   /* If there is no longer anything attached to the QH, then remove it from
@@ -2149,7 +2396,7 @@ static int sam_qh_ioccheck(struct sam_qh_s *qh, uint32_t **bp, void *arg)
        */
 
       **bp = qh->hw.hlp;
-      cp15_coherent_dcache((uintptr_t)*bp, (uintptr_t)*bp + sizeof(uint32_t));
+      cp15_clean_dcache((uintptr_t)*bp, (uintptr_t)*bp + sizeof(uint32_t));
 
       /* Check for errors, update the data toggle */
 
@@ -2218,20 +2465,61 @@ static int sam_qh_ioccheck(struct sam_qh_s *qh, uint32_t **bp, void *arg)
 
 static inline void sam_ioc_bottomhalf(void)
 {
+  struct sam_qh_s *qh;
+  uint32_t *bp;
   int ret;
 
+  /* Check the Asynchronous Queue */
   /* Make sure that the head of the asynchronous queue is invalidated */
 
   cp15_invalidate_dcache((uintptr_t)&g_asynchead.hw,
                          (uintptr_t)&g_asynchead.hw + sizeof(struct ehci_qh_s));
 
-  /* Traverse all elements in the asynchronous queue */
+  /* Set the back pointer to the forward qTD pointer of the asynchronous
+   * queue head.
+   */
 
-  ret = sam_qh_forall(sam_qh_ioccheck, NULL);
-  if (ret < 0)
+  bp = (uint32_t *)&g_asynchead.hw.hlp;
+  qh = (struct sam_qh_s *)sam_virtramaddr(sam_swap32(*bp) & QH_HLP_MASK);
+  if (qh)
     {
-      udbg("ERROR: sam_qh_forall failed: %d\n", ret);
+      /* Then traverse and operate on every QH and qTD in the asynchronous
+       * queue
+       */
+
+      ret = sam_qh_foreach(qh, &bp, sam_qh_ioccheck, NULL);
+      if (ret < 0)
+        {
+          udbg("ERROR: sam_qh_foreach failed: %d\n", ret);
+        }
     }
+
+#ifndef CONFIG_USBHOST_INT_DISABLE
+  /* Check the Interrupt Queue */
+  /* Make sure that the head of the interrupt queue is invalidated */
+
+  cp15_invalidate_dcache((uintptr_t)&g_intrhead.hw,
+                         (uintptr_t)&g_intrhead.hw + sizeof(struct ehci_qh_s));
+
+  /* Set the back pointer to the forward qTD pointer of the asynchronous
+   * queue head.
+   */
+
+  bp = (uint32_t *)&g_intrhead.hw.hlp;
+  qh = (struct sam_qh_s *)sam_virtramaddr(sam_swap32(*bp) & QH_HLP_MASK);
+  if (qh)
+    {
+      /* Then traverse and operate on every QH and qTD in the asynchronous
+       * queue.
+       */
+
+      ret = sam_qh_foreach(qh, &bp, sam_qh_ioccheck, NULL);
+      if (ret < 0)
+        {
+          udbg("ERROR: sam_qh_foreach failed: %d\n", ret);
+        }
+    }
+#endif
 }
 
 /*******************************************************************************
@@ -2877,7 +3165,6 @@ static int sam_enumerate(FAR struct usbhost_connection_s *conn, int rhpndx)
    *   driver sets the PortOwner bit in the PORTSC register to a one to
    *   release port ownership to a companion host controller."
    */
-#warning REVISIT
 
   regval = sam_getreg(&HCOR->portsc[rhpndx]);
   if ((regval & EHCI_PORTSC_PE) != 0)
@@ -3439,8 +3726,10 @@ static int sam_transfer(FAR struct usbhost_driver_s *drvr, usbhost_ep_t ep,
 
 #ifndef CONFIG_USBHOST_INT_DISABLE
       case USB_EP_ATTR_XFER_INT:
-# warning "Interrupt endpoint support not emplemented"
+        nbytes = sam_intr_transfer(rhport, epinfo, buffer, buflen);
+        break;
 #endif
+
 #ifndef CONFIG_USBHOST_ISOC_DISABLE
       case USB_EP_ATTR_XFER_ISOC:
 # warning "Isochronous endpoint support not emplemented"
@@ -3644,14 +3933,19 @@ FAR struct usbhost_connection_s *sam_ehci_initialize(int controller)
 
   DEBUGASSERT(controller == 0);
   DEBUGASSERT(((uintptr_t)&g_asynchead & 0x1f) == 0);
-  DEBUGASSERT(((uintptr_t)&g_qhpool & 0x1f) == 0);
-  DEBUGASSERT(((uintptr_t)&g_qtdpool & 0x1f) == 0);
   DEBUGASSERT((sizeof(struct sam_qh_s) & 0x1f) == 0);
   DEBUGASSERT((sizeof(struct sam_qtd_s) & 0x1f) == 0);
 
+#ifdef CONFIG_SAMA5_EHCI_PREALLOCATE
+  DEBUGASSERT(((uintptr_t)&g_qhpool & 0x1f) == 0);
+  DEBUGASSERT(((uintptr_t)&g_qtdpool & 0x1f) == 0);
+#endif
+
 #ifndef CONFIG_USBHOST_INT_DISABLE
-  DEBUGASSERT(((uintptr_t)&g_perhead & 0x1f) == 0);
+  DEBUGASSERT(((uintptr_t)&g_intrhead & 0x1f) == 0);
+#ifdef CONFIG_SAMA5_EHCI_PREALLOCATE
   DEBUGASSERT(((uintptr_t)g_framelist & 0xfff) == 0);
+#endif
 #endif
 
   /* SAMA5 Configuration *******************************************************/
@@ -3754,6 +4048,18 @@ FAR struct usbhost_connection_s *sam_ehci_initialize(int controller)
       sem_init(&rhport->ep0.iocsem, 0, 0);
     }
 
+#ifndef CONFIG_SAMA5_EHCI_PREALLOCATE
+  /* Allocate a pool of free Queue Head (QH) structures */
+
+  g_qhpool = (struct sam_qh_s *)
+    kmemalign(32, CONFIG_SAMA5_EHCI_NQHS * sizeof(struct sam_qh_s));
+  if (!g_qhpool)
+    {
+      udbg("ERROR: Failed to allocate the QH pool\n");
+      return NULL;
+    }
+#endif
+
   /* Initialize the list of free Queue Head (QH) structures */
 
   for (i = 0; i < CONFIG_SAMA5_EHCI_NQHS; i++)
@@ -3763,7 +4069,34 @@ FAR struct usbhost_connection_s *sam_ehci_initialize(int controller)
       sam_qh_free(&g_qhpool[i]);
     }
 
-  /* Initialize the list of free Queue Head (QH) structures */
+#ifndef CONFIG_SAMA5_EHCI_PREALLOCATE
+  /* Allocate a pool of free  Transfer Descriptor (qTD) structures */
+
+  g_qtdpool = (struct sam_qtd_s *)
+    kmemalign(32, CONFIG_SAMA5_EHCI_NQTDS * sizeof(struct sam_qtd_s));
+  if (!g_qtdpool)
+    {
+      udbg("ERROR: Failed to allocate the qTD pool\n");
+      kfree(g_qhpool);
+      return NULL;
+    }
+#endif
+
+#ifndef CONFIG_SAMA5_EHCI_PREALLOCATE
+  /* Allocate the periodic framelist  */
+
+  g_framelist = (uint32_t *)
+    kmemalign(4096, FRAME_LIST_SIZE * sizeof(uint32_t));
+  if (!g_framelist)
+    {
+      udbg("ERROR: Failed to allocate the periodic frame list\n");
+      kfree(g_qhpool);
+      kfree(g_qtdpool);
+      return NULL;
+    }
+#endif
+
+  /* Initialize the list of free Transfer Descriptor (qTD) structures */
 
   for (i = 0; i < CONFIG_SAMA5_EHCI_NQTDS; i++)
     {
@@ -3825,7 +4158,7 @@ FAR struct usbhost_connection_s *sam_ehci_initialize(int controller)
   regval16 = sam_swap16(HCCR->hciversion);
   uvdbg("HCIVERSION %x.%02x\n", regval16 >> 8, regval16 & 0xff);
 
-  /* Verify the the correct number of ports is reported */
+  /* Verify that the correct number of ports is reported */
 
   regval = sam_getreg(&HCCR->hcsparams);
   nports = (regval & EHCI_HCSPARAMS_NPORTS_MASK) >> EHCI_HCSPARAMS_NPORTS_SHIFT;
@@ -3861,26 +4194,30 @@ FAR struct usbhost_connection_s *sam_ehci_initialize(int controller)
   g_asynchead.hw.overlay.token = sam_swap32(QH_TOKEN_HALTED);
   g_asynchead.fqp              = sam_swap32(QTD_NQP_T);
 
-  cp15_coherent_dcache((uintptr_t)&g_asynchead.hw,
-                       (uintptr_t)&g_asynchead.hw + sizeof(struct ehci_qh_s));
+  cp15_clean_dcache((uintptr_t)&g_asynchead.hw,
+                    (uintptr_t)&g_asynchead.hw + sizeof(struct ehci_qh_s));
 
   /* Set the Current Asynchronous List Address. */
 
   sam_putreg(sam_swap32(physaddr), &HCOR->asynclistaddr);
 
 #ifndef CONFIG_USBHOST_INT_DISABLE
-  /* Initialize the head of the periodic list */
+  /* Initialize the head of the periodic list.  Since Isochronous
+   * endpoints are not not yet supported, each element of the
+   * frame list is initialized to point to the Interrupt Queue
+   * Head (g_intrhead).
+   */
 
-  memset(&g_perhead, 0, sizeof(struct sam_qh_s));
-  g_perhead.hw.hlp           = sam_swap32(QH_HLP_T);
-  g_perhead.hw.overlay.nqp   = sam_swap32(QH_NQP_T);
-  g_perhead.hw.overlay.alt   = sam_swap32(QH_NQP_T);
-  g_perhead.hw.overlay.token = sam_swap32(QH_TOKEN_HALTED);
-  g_perhead.hw.epcaps        = sam_swap32(QH_EPCAPS_SSMASK(1));
+  memset(&g_intrhead, 0, sizeof(struct sam_qh_s));
+  g_intrhead.hw.hlp           = sam_swap32(QH_HLP_T);
+  g_intrhead.hw.overlay.nqp   = sam_swap32(QH_NQP_T);
+  g_intrhead.hw.overlay.alt   = sam_swap32(QH_NQP_T);
+  g_intrhead.hw.overlay.token = sam_swap32(QH_TOKEN_HALTED);
+  g_intrhead.hw.epcaps        = sam_swap32(QH_EPCAPS_SSMASK(1));
 
   /* Attach the periodic QH to Period Frame List */
 
-  physaddr = sam_physramaddr((uintptr_t)&g_perhead);
+  physaddr = sam_physramaddr((uintptr_t)&g_intrhead);
   for (i = 0; i < FRAME_LIST_SIZE; i++)
     {
       g_framelist[i] = sam_swap32(physaddr) | PFL_TYP_QH;
@@ -3888,15 +4225,18 @@ FAR struct usbhost_connection_s *sam_ehci_initialize(int controller)
 
   /* Set the Periodic Frame List Base Address. */
 
-  cp15_coherent_dcache((uintptr_t)&g_perhead.hw,
-                       (uintptr_t)&g_perhead.hw + sizeof(struct ehci_qh_s));
-  cp15_coherent_dcache((uintptr_t)g_framelist,
-                       (uintptr_t)g_framelist + FRAME_LIST_SIZE * sizeof(uint32_t));
+  cp15_clean_dcache((uintptr_t)&g_intrhead.hw,
+                    (uintptr_t)&g_intrhead.hw + sizeof(struct ehci_qh_s));
+  cp15_clean_dcache((uintptr_t)g_framelist,
+                    (uintptr_t)g_framelist + FRAME_LIST_SIZE * sizeof(uint32_t));
 
+  physaddr = sam_physramaddr((uintptr_t)g_framelist);
   sam_putreg(sam_swap32(physaddr), &HCOR->periodiclistbase);
 #endif
 
-  /* Enable the asynchronous schedule and, possibly set the frame list size */
+  /* Enable the asynchronous schedule and, possibly enable the periodic
+   * schedule and set the frame list size.
+   */
 
   regval  = sam_getreg(&HCOR->usbcmd);
   regval &= ~(EHCI_USBCMD_HCRESET | EHCI_USBCMD_FLSIZE_MASK |
@@ -3905,6 +4245,7 @@ FAR struct usbhost_connection_s *sam_ehci_initialize(int controller)
   regval |= EHCI_USBCMD_ASEN;
 
 #ifndef CONFIG_USBHOST_INT_DISABLE
+  regval |= EHCI_USBCMD_PSEN;
 #  if FRAME_LIST_SIZE == 1024
   regval |= EHCI_USBCMD_FLSIZE_1024;
 #  elif FRAME_LIST_SIZE == 512
