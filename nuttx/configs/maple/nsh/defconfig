@@ -318,8 +318,8 @@ CONFIG_NSH_MMCSDMINOR=0
 #
 # Board-Specific Options
 #
-# CONFIG_LEACH_NORMAL is not set
-CONFIG_LEACH_MINI=y
+CONFIG_LEACH_NORMAL=y
+# CONFIG_LEACH_MINI is not set
 
 #
 # RTOS Features
