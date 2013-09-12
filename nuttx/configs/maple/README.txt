@@ -78,7 +78,7 @@ DFU
   The DFU SE PC-based software is available from the STMicro website,
   http://www.st.com.  General usage instructions:
 
-  1. Connect the leach board to your computer using a USB
+  1. Connect the maple board to your computer using a USB
      cable.
   2. Start the DFU loader on the maple board. You do this by
      resetting the board while holding the "Key" button. Windows should

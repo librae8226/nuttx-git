@@ -71,7 +71,7 @@
  * Name: stm32_usbinitialize
  *
  * Description:
- *   Called to setup USB-related GPIO pins for the Hy-Mini STM32v board.
+ *   Called to setup USB-related GPIO pins.
  *
  ************************************************************************************/
 

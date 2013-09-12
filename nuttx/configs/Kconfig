@@ -530,15 +530,14 @@ config ARCH_BOARD_SKP16C26
 		due to issues with compiler internal errors.
 
 config ARCH_BOARD_MAPLE
-	bool "maple (mini) board"
+	bool "maple board"
 	depends on ARCH_CHIP_STM32F103RBT6
 	select ARCH_HAVE_LEDS
 	select ARCH_HAVE_BUTTONS
-	select ARCH_HAVE_IRQBUTTONS
 	---help---
-		A configuration for the maple board.  This board is based on the
-		STM32F103CBT6 chip for the mini version, and STM32F103RBT6 for the normal
-		version.
+		A configuration for the maple board.
+		This board is based on the STM32F103RBT6 chip for the standard version,
+		and STM32F103CBT6 for the mini version.
 
 config ARCH_BOARD_STM32_TINY
 	bool "STM32-Tiny board"
