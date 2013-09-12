@@ -2,12 +2,8 @@
  * configs/maple/src/up_boot.c
  * arch/arm/src/board/up_boot.c
  *
- *   Copyright (C) 2013 Librae. All rights reserved.
- *   Modified by: Librae <librae8226@gmail.com>
- *
  *   Copyright (C) 2009, 2011 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
- *           Laurent Latil <laurent@latil.nom.fr>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions

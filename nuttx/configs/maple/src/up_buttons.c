@@ -1,9 +1,6 @@
 /****************************************************************************
  * configs/maple/src/up_buttons.c
  *
- *   Copyright (C) 2013 Librae. All rights reserved.
- *   Modified by: Librae <librae8226@gmail.com>
- *
  *   Copyright (C) 2009, 2011 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
  *

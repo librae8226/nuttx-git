@@ -2,12 +2,9 @@
  * configs/maple/src/up_leds.c
  * arch/arm/src/board/up_leds.c
  *
- *   Copyright (C) 2013 Librae. All rights reserved.
- *   Modified by: Librae <librae8226@gmail.com>
- *
  *   Copyright (C) 2009, 2011, 2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
- *           Laurent Latil <laurent@latil.nom.fr>
+ *           Librae <librae8226@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -119,6 +116,8 @@ void up_ledon(int led)
 		/* For panic state, the LED is blinking */
 		set_led(true);
 		break;
+	default:
+		break;
 	}
 }
 
@@ -135,6 +134,8 @@ void up_ledoff(int led)
 	case LED_PANIC:
 		/* For panic state, the LED is blinking */
 		set_led(false);
+		break;
+	default:
 		break;
 	}
 }

@@ -2,9 +2,6 @@
  * configs/maple/src/up_watchdog.c
  * arch/arm/src/board/up_watchdog.c
  *
- *   Copyright (C) 2013 Librae. All rights reserved.
- *   Modified by: Librae <librae8226@gmail.com>
- *
  *   Copyright (C) 2012 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
  *

@@ -1,12 +1,9 @@
 ############################################################################
 # configs/maple/src/Makefile
 #
-#   Copyright (C) 2013 Librae. All rights reserved.
-#   Modified by: Librae <librae8226@gmail.com>
-#
-#   Copyright (C) 2009-2012 Gregory Nutt. All rights reserved.
+#   Copyright (C) 2009-2013 Gregory Nutt. All rights reserved.
 #   Author: Gregory Nutt <gnutt@nuttx.org>
-#           Laurent Latil <laurent@latil.nom.fr>
+#           Librae <librae8226@gmail.com>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
