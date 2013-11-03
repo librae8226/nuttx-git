@@ -1,8 +1,12 @@
 ############################################################################
-# apps/system/Makefile
+# apps/system/debug/Makefile
 #
-#   Copyright (C) 2011-2013 Gregory Nutt. All rights reserved.
-#   Author: Gregory Nutt <gnutt@nuttx.org>
+#   Copyright (C) 2011-2012 Uros Platise. All rights reserved.
+#   Author: Uros Platise <uros.platise@isotel.eu>
+#           Gregory Nutt <gnutt@nuttx.org>
+#
+#   Copyright (C) 2013 Librae. All rights reserved.
+#   Modified by: Librae <librae8226@gmail.com>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -33,46 +37,84 @@
 #
 ############################################################################
 
--include $(TOPDIR)/.config	# Current configuration
+-include $(TOPDIR)/.config
+-include $(TOPDIR)/Make.defs
+include $(APPDIR)/Make.defs
 
-# Sub-directories containing system task
-
-SUBDIRS  = cdcacm composite debug flash_eraseall free i2c install nxplayer
-SUBDIRS += poweroff ramtest ramtron readline sdcard stackmonitor sysinfo
-SUBDIRS += usbmonitor usbmsc zmodem
-
-# Create the list of installed runtime modules (INSTALLED_DIRS)
-
-ifeq ($(CONFIG_WINDOWS_NATIVE),y)
-define ADD_DIRECTORY
-  INSTALLED_DIRS  += $(if $(wildcard .\$1\Makefile),$1,)
-endef
-else
-define ADD_DIRECTORY
-  INSTALLED_DIRS  += $(if $(wildcard ./$1/Makefile),$1,)
-endef
+ifeq ($(WINTOOL),y)
+INCDIROPT	= -w
 endif
 
-$(foreach DIR, $(SUBDIRS), $(eval $(call ADD_DIRECTORY,$(DIR))))
+# Hello Application
+# TODO: appname can be automatically extracted from the directory name
 
-all: nothing
-.PHONY: nothing context depend clean distclean
+APPNAME		= debug
+PRIORITY	= SCHED_PRIORITY_DEFAULT
+STACKSIZE	= 1024
 
-define SDIR_template
-$(1)_$(2):
-	$(Q) $(MAKE) -C $(1) $(2) TOPDIR="$(TOPDIR)" APPDIR="$(APPDIR)"
-endef
+ASRCS		=
+CSRCS		= debug.c
 
-$(foreach SDIR, $(INSTALLED_DIRS), $(eval $(call SDIR_template,$(SDIR),depend)))
-$(foreach SDIR, $(INSTALLED_DIRS), $(eval $(call SDIR_template,$(SDIR),clean)))
-$(foreach SDIR, $(INSTALLED_DIRS), $(eval $(call SDIR_template,$(SDIR),distclean)))
+AOBJS		= $(ASRCS:.S=$(OBJEXT))
+COBJS		= $(CSRCS:.c=$(OBJEXT))
 
-nothing:
+SRCS		= $(ASRCS) $(CSRCS)
+OBJS		= $(AOBJS) $(COBJS)
 
+ifeq ($(CONFIG_WINDOWS_NATIVE),y)
+  BIN		= ..\..\libapps$(LIBEXT)
+else
+ifeq ($(WINTOOL),y)
+  BIN		= ..\\..\\libapps$(LIBEXT)
+else
+  BIN		= ../../libapps$(LIBEXT)
+endif
+endif
+
+ROOTDEPPATH	= --dep-path .
+
+# Common build
+
+VPATH		=
+
+all:	.built
+.PHONY: context depend clean distclean
+
+$(AOBJS): %$(OBJEXT): %.S
+	$(call ASSEMBLE, $<, $@)
+
+$(COBJS): %$(OBJEXT): %.c
+	$(call COMPILE, $<, $@)
+
+.built: $(OBJS)
+	$(call ARCHIVE, $(BIN), $(OBJS))
+	$(Q) touch .built
+
+# Register application
+
+ifeq ($(CONFIG_NSH_BUILTIN_APPS),y)
+$(BUILTIN_REGISTRY)$(DELIM)$(APPNAME)_main.bdat: $(DEPCONFIG) Makefile
+	$(call REGISTER,$(APPNAME),$(PRIORITY),$(STACKSIZE),$(APPNAME)_main)
+
+context: $(BUILTIN_REGISTRY)$(DELIM)$(APPNAME)_main.bdat
+else
 context:
+endif
 
-depend: $(foreach SDIR, $(INSTALLED_DIRS), $(SDIR)_depend)
+# Create dependencies
 
-clean: $(foreach SDIR, $(INSTALLED_DIRS), $(SDIR)_clean)
+.depend: Makefile $(SRCS)
+	$(Q) $(MKDEP) $(ROOTDEPPATH) "$(CC)" -- $(CFLAGS) -- $(SRCS) >Make.dep
+	$(Q) touch $@
 
-distclean: $(foreach SDIR, $(INSTALLED_DIRS), $(SDIR)_distclean)
+depend: .depend
+
+clean:
+	$(call DELFILE, .built)
+	$(call CLEAN)
+
+distclean: clean
+	$(call DELFILE, Make.dep)
+	$(call DELFILE, .depend)
+
+-include Make.dep

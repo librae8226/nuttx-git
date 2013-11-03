@@ -1160,7 +1160,7 @@ static int nokia_initialize(struct nokia_dev_s *priv)
 #ifdef CONFIG_NOKIA6100_PCF8833
 static int nokia_initialize(struct nokia_dev_s *priv)
 {
-  struct struct spi_dev_s *spi = priv->spi;
+  struct spi_dev_s *spi = priv->spi;
 
   nokia_sndcmd(spi, PCF8833_SLEEPOUT);              /* Exit sleep mode */
   nokia_sndcmd(spi, PCF8833_BSTRON);                /* Turn on voltage booster */

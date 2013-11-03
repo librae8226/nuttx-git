@@ -1,0 +1,14 @@
+#
+# For a description of the syntax of this configuration file,
+# see misc/tools/kconfig-language.txt.
+#
+
+config SYSTEM_DEBUG
+	bool "Customized Debug Support"
+	default n
+	---help---
+		Enable debug support for Nuttx.
+
+if SYSTEM_DEBUG
+endif
+

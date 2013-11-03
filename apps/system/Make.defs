@@ -33,6 +33,10 @@
 # POSSIBILITY OF SUCH DAMAGE.
 #
 ############################################################################
+#
+ifeq ($(CONFIG_SYSTEM_DEBUG),y)
+CONFIGURED_APPS += system/debug
+endif
 
 ifeq ($(CONFIG_SYSTEM_CDCACM),y)
 CONFIGURED_APPS += system/cdcacm
