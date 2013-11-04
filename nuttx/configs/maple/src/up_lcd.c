@@ -100,7 +100,7 @@
  * Private Data
  ****************************************************************************/
 
-FAR struct lcd_dev_s *lcddev;
+FAR struct lcd_dev_s *l_lcddev = NULL;
 
 /****************************************************************************
  * Public Functions
@@ -118,17 +118,23 @@ FAR struct lcd_dev_s *lcddev;
 
 FAR int up_lcdinitialize(void)
 {
-  FAR struct spi_dev_s *spidev;
-  gvdbg("Initializing\n");
+  FAR struct spi_dev_s *spidev = NULL;
+  gvdbg("Initializing lcd\n");
 
   /* config reset gpio */
+  gvdbg("config reset gpio\n");
   stm32_configgpio(GPIO_NOKIA6100_RST);
 
   /* init spi */
+  gvdbg("init spi1\n");
   spidev = up_spiinitialize(1);
+  DEBUGASSERT(spidev);
 
   /* init nokia lcd */
-  lcddev = nokia_lcdinitialize(spidev, 0);
+  gvdbg("init nokia lcd\n");
+  l_lcddev = nokia_lcdinitialize(spidev, 0);
+  DEBUGASSERT(l_lcddev);
+  l_lcddev->setpower(l_lcddev, CONFIG_LCD_MAXPOWER);
 
   return OK;
 }
@@ -145,7 +151,7 @@ FAR int up_lcdinitialize(void)
 FAR struct lcd_dev_s *up_lcdgetdev(int lcddev)
 {
   DEBUGASSERT(lcddev == 0);
-  return lcddev;
+  return l_lcddev;
 }
 
 /****************************************************************************
