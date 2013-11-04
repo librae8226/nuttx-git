@@ -1108,7 +1108,7 @@ static int nokia_setcontrast(struct lcd_dev_s *dev, unsigned int contrast)
 
        cmd[0] = PCF8833_SETCON;
        cmd[1] = priv->contrast;
-       nokia_sndarry(priv->spi, 2, cmd);
+       nokia_cmdarray(priv->spi, 2, cmd);
        priv->contrast = contrast;
 #endif
     }

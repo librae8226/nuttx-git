@@ -1,9 +1,8 @@
-############################################################################
-# configs/maple/src/Makefile
+#!/bin/bash
+# configs/maple/usbnsh/setenv.sh
 #
 #   Copyright (C) 2013 Gregory Nutt. All rights reserved.
 #   Author: Gregory Nutt <gnutt@nuttx.org>
-#           Librae <librae8226@gmail.com>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -32,70 +31,38 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 #
-############################################################################
 
--include $(TOPDIR)/Make.defs
+if [ "$_" = "$0" ] ; then
+  echo "You must source this script, not run it!" 1>&2
+  exit 1
+fi
 
-CFLAGS		+= -I$(TOPDIR)/sched
+WD=`pwd`
+if [ ! -x "setenv.sh" ]; then
+  echo "This script must be executed from the top-level NuttX build directory"
+  exit 1
+fi
 
-ASRCS		=
-AOBJS		= $(ASRCS:.S=$(OBJEXT))
+if [ -z "${PATH_ORIG}" ]; then
+  export PATH_ORIG="${PATH}"
+fi
 
-CSRCS		= up_boot.c up_leds.c up_usbdev.c up_spi.c up_lcd.c
+# This is the Cygwin path to the location where I installed the RIDE
+# toolchain
 
-ifeq ($(CONFIG_NX_LCDDRIVER),y)
-endif
+export RIDE_BIN="/cygdrive/c/Program Files/Raisonance/Ride/arm-gcc/bin"
 
-ifeq ($(CONFIG_NSH_ARCHINIT),y)
-endif
+# This is the Cygwin path to the location where I build the buildroot
+# toolchain.
 
-ifeq ($(CONFIG_INPUT),y)
-endif
+export BUILDROOT_BIN="${WD}/../misc/buildroot/build_arm_nofpu/staging_dir/bin"
 
-ifeq ($(CONFIG_USBMSC),y)
-endif
+# This is the path to the LM3S6995-EK tools directory
 
-ifeq ($(CONFIG_WATCHDOG),y)
-	CSRCS		+= up_watchdog.c
-endif
+export TOOL_BIN="${WD}/configs/lm3s6965-ek/tools"
 
-COBJS		= $(CSRCS:.c=$(OBJEXT))
+# Update the PATH variable
 
-SRCS		= $(ASRCS) $(CSRCS)
-OBJS		= $(AOBJS) $(COBJS)
+export PATH="${BUILDROOT_BIN}:${TOOL_BIN:${RIDE_BIN}:/sbin:/usr/sbin:${PATH_ORIG}"
 
-ARCH_SRCDIR	= $(TOPDIR)/arch/$(CONFIG_ARCH)/src
-ifeq ($(WINTOOL),y)
-	CFLAGS	+= -I "${shell cygpath -w $(ARCH_SRCDIR)/chip}" \
-		   -I "${shell cygpath -w $(ARCH_SRCDIR)/common}" \
-		   -I "${shell cygpath -w $(ARCH_SRCDIR)/armv7-m}"
-	else
-	CFLAGS	+= -I$(ARCH_SRCDIR)/chip -I$(ARCH_SRCDIR)/common -I$(ARCH_SRCDIR)/armv7-m
-endif
-
-all: libboard$(LIBEXT)
-
-$(AOBJS): %$(OBJEXT): %.S
-	$(call ASSEMBLE, $<, $@)
-
-$(COBJS) $(LINKOBJS): %$(OBJEXT): %.c
-	$(call COMPILE, $<, $@)
-
-libboard$(LIBEXT): $(OBJS)
-	$(call ARCHIVE, $@, $(OBJS))
-
-.depend: Makefile $(SRCS)
-	$(Q) $(MKDEP) $(CC) -- $(CFLAGS) -- $(SRCS) >Make.dep
-	$(Q) touch $@
-
-depend: .depend
-
-clean:
-	$(call DELFILE, libboard$(LIBEXT))
-	$(call CLEAN)
-
-distclean: clean
-	$(call DELFILE, Make.dep)
-	$(call DELFILE, .depend)
-
--include Make.dep
+echo "PATH : ${PATH}"

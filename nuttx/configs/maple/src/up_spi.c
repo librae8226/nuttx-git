@@ -4,6 +4,7 @@
  *   Copyright (C) 2009, 2011-2013 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
  *           Laurent Latil <laurent@latil.nom.fr>
+ *           Librae <librae8226@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -89,7 +90,7 @@
  * Name: stm32_spiinitialize
  *
  * Description:
- *   Called to configure SPI chip select GPIO pins for the HY-MiniSTM32 board.
+ *   Called to configure SPI chip select GPIO pins for the maple board.
  *
  ************************************************************************************/
 
