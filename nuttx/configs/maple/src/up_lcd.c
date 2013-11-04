@@ -130,6 +130,12 @@ FAR int up_lcdinitialize(void)
   spidev = up_spiinitialize(1);
   DEBUGASSERT(spidev);
 
+  gvdbg("reset lcd\n");
+  stm32_gpiowrite(GPIO_NOKIA6100_RST, false);
+  up_mdelay(200);
+  stm32_gpiowrite(GPIO_NOKIA6100_RST, true);
+  up_mdelay(200);
+
   /* init nokia lcd */
   gvdbg("init nokia lcd\n");
   l_lcddev = nokia_lcdinitialize(spidev, 0);
