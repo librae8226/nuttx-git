@@ -52,6 +52,12 @@
 #include <nuttx/lcd/lcd.h>
 #include <nuttx/lcd/nokia6100.h>
 
+#include "chip.h"
+#include "up_arch.h"
+#include "up_internal.h"
+#include "stm32.h"
+#include "maple-internal.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -116,6 +122,7 @@ FAR int up_lcdinitialize(void)
   gvdbg("Initializing\n");
 
   /* config reset gpio */
+  stm32_configgpio(GPIO_NOKIA6100_RST);
 
   /* init spi */
   spidev = up_spiinitialize(1);

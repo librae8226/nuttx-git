@@ -77,6 +77,9 @@
 #define GPIO_NOKIA6100_CS \
 			(GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
                          GPIO_OUTPUT_SET|GPIO_PORTA|GPIO_PIN3)
+#define GPIO_NOKIA6100_RST \
+			(GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
+                         GPIO_OUTPUT_SET|GPIO_PORTA|GPIO_PIN4)
 
 /************************************************************************************
  * Public Types
