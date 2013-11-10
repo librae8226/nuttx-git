@@ -54,6 +54,9 @@
 #include <errno.h>
 #include <debug.h>
 
+#include <nuttx/lcd/lcd.h>
+#include <nuttx/arch.h>
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -86,10 +89,12 @@ int debug_main(int argc, char **argv)
 {
 	pthread_attr_t attr_custom;
 	int ret = 0;
+	struct lcd_dev_s *dev;
 
 	up_ledoff(0);
 	printf("Hello system debug! @%s\n", argv[0]);
 
+#if 0
 	/* start a custom thread */
 	ret = pthread_attr_init(&attr_custom);
 	if (ret != OK)
@@ -99,6 +104,30 @@ int debug_main(int argc, char **argv)
 			     custom_thread_func, (pthread_addr_t)0);
 	if (ret != 0)
 		goto out;
+#else
+	/* Initialize the LCD device */
+
+	printf("debug: Initializing LCD\n");
+	ret = up_lcdinitialize();
+	if (ret < 0)
+	{
+		printf("debug: up_lcdinitialize failed: %d\n", -ret);
+		goto out;
+	}
+
+	/* Get the device instance */
+
+	dev = up_lcdgetdev(CONFIG_EXAMPLES_NX_DEVNO);
+	if (!dev)
+	{
+		printf("debug: up_lcdgetdev failed, devno=%d\n", CONFIG_EXAMPLES_NX_DEVNO);
+		goto out;
+	}
+
+	/* Turn the LCD on at 75% power */
+
+	(void)dev->setpower(dev, ((3*CONFIG_LCD_MAXPOWER + 3)/4));
+#endif
 
 	return OK;
 out:

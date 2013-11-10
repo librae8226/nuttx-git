@@ -678,7 +678,7 @@ static inline void nokia_configspi(FAR struct spi_dev_s *spi)
 #ifdef CONFIG_SPI_OWNBUS
   SPI_SETMODE(spi, CONFIG_NOKIA6100_SPIMODE);
   SPI_SETBITS(spi, CONFIG_NOKIA6100_WORDWIDTH);
-  SPI_SETFREQUENCY(spi, CONFIG_NOKIA6100_FREQUENCY)
+  SPI_SETFREQUENCY(spi, CONFIG_NOKIA6100_FREQUENCY);
 #endif
 }
 
@@ -1139,7 +1139,7 @@ static int nokia_initialize(struct nokia_dev_s *priv)
   nokia_cmdarray(spi, sizeof(g_volctr), g_volctr);   /* Volume control (contrast) */
   nokia_cmdarray(spi, sizeof(g_pwrctr), g_pwrctr);   /* Turn on voltage regulators */
   up_mdelay(100);
-#ifdef CONFIG_NOKIA6100_INVERT
+#if CONFIG_NOKIA6100_INVERT == 1
   nokia_sndcmd(spi, S1D15G10_DISINV);                /* Invert display */
 #else
   nokia_sndcmd(spi, S1D15G10_DISNOR);                /* Normal display */
@@ -1164,7 +1164,7 @@ static int nokia_initialize(struct nokia_dev_s *priv)
 
   nokia_sndcmd(spi, PCF8833_SLEEPOUT);              /* Exit sleep mode */
   nokia_sndcmd(spi, PCF8833_BSTRON);                /* Turn on voltage booster */
-#ifdef CONFIG_NOKIA6100_INVERT
+#if CONFIG_NOKIA6100_INVERT == 1
   nokia_sndcmd(spi, PCF8833_INVON);                 /* Invert display */
 #else
   nokia_sndcmd(spi, PCF8833_INVOFF);                /* Don't invert display */
