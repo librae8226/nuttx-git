@@ -309,7 +309,7 @@ static void memlcd_deselect(FAR struct spi_dev_s *spi)
 }
 #endif
 
-/**************************************************************************************
+/*******************************************************************************
  * Name:  memlcd_clear
  *
  * Description:
@@ -320,7 +320,7 @@ static void memlcd_deselect(FAR struct spi_dev_s *spi)
  *
  * Assumptions:
  *
- **************************************************************************************/
+ ******************************************************************************/
 static inline void memlcd_clear(FAR struct memlcd_dev_s *priv)
 {
 	lcddbg("Clear display\n");

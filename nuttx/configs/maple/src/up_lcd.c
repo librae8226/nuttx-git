@@ -115,6 +115,7 @@ FAR int up_lcdinitialize(void)
 
   /* init lcd */
   gvdbg("init lcd\n");
+  l_lcddev = memlcd_initialize(spidev, 0);
   DEBUGASSERT(l_lcddev);
 
   return OK;
