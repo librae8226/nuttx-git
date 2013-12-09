@@ -94,7 +94,7 @@
  *
  ************************************************************************************/
 
-void stm32_spiinitialize(void)
+void weak_function stm32_spiinitialize(void)
 {
   /*
    * NOTE: Clocking for SPI1 and/or SPI2 was already provided in stm32_rcc.c.
@@ -102,6 +102,7 @@ void stm32_spiinitialize(void)
    *       Here, we only initialize chip select pins unique to the board
    *       architecture.
    */
+  stm32_configgpio(GPIO_MEMLCD_CS);
 }
 
 /****************************************************************************
@@ -132,11 +133,16 @@ void stm32_spiinitialize(void)
 #ifdef CONFIG_STM32_SPI1
 void stm32_spi1select(FAR struct spi_dev_s *dev, enum spi_dev_e devid, bool selected)
 {
+  spidbg("devid: %d CS: %s\n", (int)devid, selected ? "assert" : "de-assert");
+#if defined(CONFIG_LCD_SHARP_MEMLCD)
+  if (devid == SPIDEV_DISPLAY)
+      stm32_gpiowrite(GPIO_MEMLCD_CS, selected);
+#endif
 }
 
 uint8_t stm32_spi1status(FAR struct spi_dev_s *dev, enum spi_dev_e devid)
 {
-  return OK;
+  return 0;
 }
 
 int stm32_spi1cmddata(FAR struct spi_dev_s *dev, enum spi_dev_e devid, bool cmd)
@@ -152,7 +158,7 @@ void stm32_spi2select(FAR struct spi_dev_s *dev, enum spi_dev_e devid, bool sele
 
 uint8_t stm32_spi2status(FAR struct spi_dev_s *dev, enum spi_dev_e devid)
 {
-  return OK;
+  return 0;
 }
 
 int stm32_spi1cmddata(FAR struct spi_dev_s *dev, enum spi_dev_e devid, bool cmd)

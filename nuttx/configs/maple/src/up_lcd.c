@@ -50,6 +50,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/lcd/lcd.h>
+#include <nuttx/lcd/memlcd.h>
 
 #include "chip.h"
 #include "up_arch.h"
@@ -62,6 +63,10 @@
  ****************************************************************************/
 
 /* Configuration ************************************************************/
+
+#define EXTCOMIN_FREQ	24
+#define TIMER_FREQ	1200 /* 72000000/60000 */
+
 /* Debug ********************************************************************/
 /* Define CONFIG_DEBUG_LCD to enable detailed LCD debug output. Verbose debug must
  * also be enabled.
@@ -87,7 +92,20 @@
  * Private Data
  ****************************************************************************/
 
-FAR struct lcd_dev_s *l_lcddev = NULL;
+static struct lcd_dev_s *l_lcddev = NULL;
+static struct spi_dev_s *spi = NULL;
+static struct stm32_tim_dev_s *tim = NULL;
+
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+static int memlcd_extcomin_isr(int irq, void *context)
+{
+    STM32_TIM_ACKINT(tim, 0);
+    gvdbg("%s!!!\n", __func__);
+}
 
 /****************************************************************************
  * Public Functions
@@ -105,17 +123,26 @@ FAR struct lcd_dev_s *l_lcddev = NULL;
 
 FAR int up_lcdinitialize(void)
 {
-  FAR struct spi_dev_s *spidev = NULL;
   gvdbg("Initializing lcd\n");
 
-  /* init spi */
   gvdbg("init spi1\n");
-  spidev = up_spiinitialize(1);
-  DEBUGASSERT(spidev);
+  spi = up_spiinitialize(1);
+  DEBUGASSERT(spi);
 
-  /* init lcd */
+  gvdbg("configure related io\n");
+  stm32_configgpio(GPIO_MEMLCD_EXTCOMIN);
+  stm32_configgpio(GPIO_MEMLCD_DISP);
+
+  gvdbg("configure extcomin timer\n");
+  tim = stm32_tim_init(6);
+  STM32_TIM_SETPERIOD(tim, TIMER_FREQ/EXTCOMIN_FREQ);
+  STM32_TIM_SETCLOCK(tim, TIMER_FREQ);
+  STM32_TIM_SETMODE(tim, STM32_TIM_MODE_UP);
+  STM32_TIM_SETISR(tim, memlcd_extcomin_isr, 0);
+  STM32_TIM_ENABLEINT(tim, 0);
+
   gvdbg("init lcd\n");
-  l_lcddev = memlcd_initialize(spidev, 0);
+  l_lcddev = memlcd_initialize(spi, 0);
   DEBUGASSERT(l_lcddev);
 
   return OK;
