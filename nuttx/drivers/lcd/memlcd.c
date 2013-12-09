@@ -18,7 +18,7 @@
  *    distribution.
  * 3. Neither the name NuttX nor the names of its contributors may be
  *    used to endorse or promote products derived from this software
- *    without specific prior wmemlcdten permission.
+ *    without specific prior writen permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -332,13 +332,13 @@ static inline void memlcd_clear(FAR struct memlcd_dev_s *priv)
  * Name:  memlcd_putrun
  *
  * Description:
- *   This method can be used to wmemlcde a partial raster line to the LCD.
+ *   This method can be used to write a partial raster line to the LCD.
  *
  * Input Parameters:
- *   row     - Starting row to wmemlcde to (range: 0 <= row < yres)
- *   col     - Starting column to wmemlcde to (range: 0 <= col <= xres-npixels)
- *   buffer  - The buffer containing the run to be wmemlcdten to the LCD
- *   npixels - The number of pixels to wmemlcde to the LCD
+ *   row     - Starting row to write to (range: 0 <= row < yres)
+ *   col     - Starting column to write to (range: 0 <= col <= xres-npixels)
+ *   buffer  - The buffer containing the run to be writen to the LCD
+ *   npixels - The number of pixels to write to the LCD
  *             (range: 0 < npixels <= xres-col)
  *
  ******************************************************************************/
@@ -363,7 +363,7 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col, FAR const uint8_t *buff
  *   This method can be used to read a partial raster line from the LCD.
  *
  * Description:
- *   This method can be used to wmemlcde a partial raster line to the LCD.
+ *   This method can be used to write a partial raster line to the LCD.
  *
  *  row     - Starting row to read from (range: 0 <= row < yres)
  *  col     - Starting column to read read (range: 0 <= col <= xres-npixels)
