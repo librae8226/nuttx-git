@@ -180,8 +180,10 @@ FAR int up_lcdinitialize(void)
   stm32_configgpio(GPIO_MEMLCD_DISP);
 
   lcddbg("configure EXTCOMIN timer\n");
-  tim = stm32_tim_init(2);
-  DEBUGASSERT(tim);
+  if (tim == NULL) {
+	  tim = stm32_tim_init(2);
+	  DEBUGASSERT(tim);
+  }
   STM32_TIM_SETPERIOD(tim, TIMER_FREQ/EXTCOMIN_FREQ);
   STM32_TIM_SETCLOCK(tim, TIMER_FREQ);
   STM32_TIM_SETMODE(tim, STM32_TIM_MODE_UP);
