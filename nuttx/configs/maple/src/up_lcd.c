@@ -95,17 +95,63 @@
 static struct lcd_dev_s *l_lcddev = NULL;
 static struct spi_dev_s *spi = NULL;
 static struct stm32_tim_dev_s *tim = NULL;
-
+static xcpt_t g_isr;
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
-static int memlcd_extcomin_isr(int irq, void *context)
+static int up_lcdextcominisr(int irq, void *context)
 {
     STM32_TIM_ACKINT(tim, 0);
-    return OK;
+    if (g_isr == NULL) {
+	    lcddbg("error, irq not attached, disabled\n");
+	    STM32_TIM_DISABLEINT(tim, 0);
+	    return OK;
+    }
+    return g_isr(irq, context);
 }
+
+static int up_lcdirqattach(xcpt_t isr)
+{
+	lcddbg("%s IRQ\n", isr == NULL ? "Detach" : "Attach");
+	if (isr != NULL) {
+		STM32_TIM_SETISR(tim, up_lcdextcominisr, 0);
+		g_isr = isr;
+	} else {
+		STM32_TIM_SETISR(tim, NULL, 0);
+		g_isr = NULL;
+	}
+	return OK;
+}
+
+static void up_lcddispcontrol(bool on)
+{
+	lcddbg("set: %s\n", on ? "on" : "off");
+	if (on) {
+		stm32_gpiowrite(GPIO_MEMLCD_DISP, 1);
+		STM32_TIM_ENABLEINT(tim, 0);
+	} else {
+		stm32_gpiowrite(GPIO_MEMLCD_DISP, 0);
+		STM32_TIM_DISABLEINT(tim, 0);
+	}
+}
+
+#ifndef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
+static void up_lcdsetpolarity(bool pol)
+{
+	stm32_gpiowrite(GPIO_MEMLCD_EXTCOMIN, pol);
+}
+#endif
+
+static FAR struct memlcd_priv_s memlcd_priv =
+{
+  .attachirq = up_lcdirqattach,
+  .dispcontrol = up_lcddispcontrol,
+#ifndef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
+  .setpolarity = up_lcdsetpolarity,
+#endif
+};
 
 /****************************************************************************
  * Public Functions
@@ -139,11 +185,9 @@ FAR int up_lcdinitialize(void)
   STM32_TIM_SETPERIOD(tim, TIMER_FREQ/EXTCOMIN_FREQ);
   STM32_TIM_SETCLOCK(tim, TIMER_FREQ);
   STM32_TIM_SETMODE(tim, STM32_TIM_MODE_UP);
-  STM32_TIM_SETISR(tim, memlcd_extcomin_isr, 0);
-  STM32_TIM_ENABLEINT(tim, 0);
 
   lcddbg("init lcd\n");
-  l_lcddev = memlcd_initialize(spi, 0);
+  l_lcddev = memlcd_initialize(spi, &memlcd_priv, 0);
   DEBUGASSERT(l_lcddev);
 
   return OK;

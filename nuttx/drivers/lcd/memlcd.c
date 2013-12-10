@@ -51,6 +51,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/lcd/lcd.h>
+#include <nuttx/lcd/memlcd.h>
 
 #include <arch/irq.h>
 
@@ -102,12 +103,13 @@
 struct memlcd_dev_s
 {
 	/* publically visible device structure */
-	struct lcd_dev_s       dev;
+	struct lcd_dev_s		dev;
 
 	/* private lcd-specific information follows */
-	FAR struct spi_dev_s  *spi;      /* Cached SPI device reference */
-	uint8_t                contrast; /* Current contrast setting */
-	bool                   on;       /* true: display is on */
+	FAR struct spi_dev_s		*spi;     /* Cached SPI device reference */
+	FAR struct memlcd_priv_s	*priv;    /* Board specific structure */
+	uint8_t				contrast; /* Current contrast setting */
+	uint8_t				power;    /* Current power setting */
 
 	/*
 	 * The memlcds does not support reading the display memory in SPI mode.
@@ -316,16 +318,50 @@ static void memlcd_deselect(FAR struct spi_dev_s *spi)
  *   This method can be used to clear the entire display.
  *
  * Input Parameters:
- *   priv   - Reference to private driver structure
+ *   mlcd   - Reference to private driver structure
  *
  * Assumptions:
  *
  ******************************************************************************/
-static inline void memlcd_clear(FAR struct memlcd_dev_s *priv)
+static inline void memlcd_clear(FAR struct memlcd_dev_s *mlcd)
 {
 	lcddbg("Clear display\n");
-	memlcd_select(priv->spi);
-	memlcd_deselect(priv->spi);
+	memlcd_select(mlcd->spi);
+	memlcd_deselect(mlcd->spi);
+}
+
+/*******************************************************************************
+ * Name:  memlcd_extcominisr
+ *
+ * Description:
+ *   This method enables/disables the polarity (VCOM) toggling behavior for
+ *   the Memory LCD. Which is always used within setpower() call.
+ *   Basically, the frequency shall be 1Hz~60Hz.
+ *   If use hardware mode to toggle VCOM, we need to send specific command at a
+ *   constant frequency to trigger the LCD intenal hardware logic.
+ *   While use software mode, we set up a timer, basically, it is a hardware
+ *   timer to ensure a constant frequency.
+ *
+ * Input Parameters:
+ *   mlcd   - Reference to private driver structure
+ *
+ * Assumptions:
+ *   Board specific logic needs to be provided to support it.
+ *
+ ******************************************************************************/
+static int memlcd_extcominisr(int irq, FAR void *context)
+{
+	static bool pol = 0;
+	struct memlcd_dev_s *mlcd = &g_memlcddev;
+	lcdvdbg("irq: %d\n", irq);
+	gdbg("irq: %d\n", irq);
+#ifdef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
+#error "CONFIG_MEMLCD_EXTCOMIN_MODE_HW unsupported yet!"
+#else
+	pol = !pol;
+	mlcd->priv->setpolarity(pol);
+#endif
+	return OK;
 }
 
 /*******************************************************************************
@@ -345,13 +381,13 @@ static inline void memlcd_clear(FAR struct memlcd_dev_s *priv)
 static int memlcd_putrun(fb_coord_t row, fb_coord_t col, FAR const uint8_t *buffer,
 		size_t npixels)
 {
-	FAR struct memlcd_dev_s *priv = (FAR struct memlcd_dev_s *)&g_memlcddev;
+	FAR struct memlcd_dev_s *mlcd = (FAR struct memlcd_dev_s *)&g_memlcddev;
 
-	lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
+//	lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
 	DEBUGASSERT(buffer);
 
-	memlcd_select(priv->spi);
-	memlcd_deselect(priv->spi);
+	memlcd_select(mlcd->spi);
+	memlcd_deselect(mlcd->spi);
 
 	return OK;
 }
@@ -375,13 +411,13 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col, FAR const uint8_t *buff
 static int memlcd_getrun(fb_coord_t row, fb_coord_t col, FAR uint8_t *buffer,
 		size_t npixels)
 {
-	FAR struct memlcd_dev_s *priv = &g_memlcddev;
+	FAR struct memlcd_dev_s *mlcd = &g_memlcddev;
 
-	lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
+//	lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
 	DEBUGASSERT(buffer);
 
-	memlcd_select(priv->spi);
-	memlcd_deselect(priv->spi);
+	memlcd_select(mlcd->spi);
+	memlcd_deselect(mlcd->spi);
 
 	return OK;
 }
@@ -429,10 +465,10 @@ static int memlcd_getplaneinfo(FAR struct lcd_dev_s *dev, unsigned int planeno,
  ******************************************************************************/
 static int memlcd_getpower(FAR struct lcd_dev_s *dev)
 {
-	FAR struct memlcd_dev_s *priv = (FAR struct memlcd_dev_s *)dev;
-	DEBUGASSERT(priv);
-	lcdvdbg("power: %s\n", priv->on ? "ON" : "OFF");
-	return priv->on ? CONFIG_LCD_MAXPOWER : 0;
+	FAR struct memlcd_dev_s *mlcd = (FAR struct memlcd_dev_s *)dev;
+	DEBUGASSERT(mlcd);
+	lcdvdbg("%d\n", mlcd->power);
+	return mlcd->power;
 }
 
 /*******************************************************************************
@@ -445,9 +481,16 @@ static int memlcd_getpower(FAR struct lcd_dev_s *dev)
  ******************************************************************************/
 static int memlcd_setpower(FAR struct lcd_dev_s *dev, int power)
 {
-	struct memlcd_dev_s *priv = (struct memlcd_dev_s *)dev;
-	DEBUGASSERT(priv && (unsigned)power <= CONFIG_LCD_MAXPOWER && priv->spi);
-	lcdvdbg("power: %d [%d]\n", power, priv->on ? CONFIG_LCD_MAXPOWER : 0);
+	struct memlcd_dev_s *mlcd = (struct memlcd_dev_s *)dev;
+	DEBUGASSERT(mlcd && (unsigned)power <= CONFIG_LCD_MAXPOWER && mlcd->spi);
+	lcdvdbg("%d\n", power);
+	mlcd->power = power;
+
+	if (power > 0)
+		mlcd->priv->dispcontrol(1);
+	else
+		mlcd->priv->dispcontrol(0);
+
 	return OK;
 }
 
@@ -460,10 +503,10 @@ static int memlcd_setpower(FAR struct lcd_dev_s *dev, int power)
  ******************************************************************************/
 static int memlcd_getcontrast(struct lcd_dev_s *dev)
 {
-	struct memlcd_dev_s *priv = (struct memlcd_dev_s *)dev;
-	DEBUGASSERT(priv);
-	lcdvdbg("contrast: %d\n", priv->contrast);
-	return priv->contrast;
+	struct memlcd_dev_s *mlcd = (struct memlcd_dev_s *)dev;
+	DEBUGASSERT(mlcd);
+	lcdvdbg("contrast: %d\n", mlcd->contrast);
+	return mlcd->contrast;
 }
 
 /*******************************************************************************
@@ -475,8 +518,8 @@ static int memlcd_getcontrast(struct lcd_dev_s *dev)
  ******************************************************************************/
 static int memlcd_setcontrast(struct lcd_dev_s *dev, unsigned int contrast)
 {
-	struct memlcd_dev_s *priv = (struct memlcd_dev_s *)dev;
-	DEBUGASSERT(priv);
+	struct memlcd_dev_s *mlcd = (struct memlcd_dev_s *)dev;
+	DEBUGASSERT(mlcd);
 	lcdvdbg("contrast: %d\n", contrast);
 	return OK;
 }
@@ -502,21 +545,25 @@ static int memlcd_setcontrast(struct lcd_dev_s *dev, unsigned int contrast)
  * Returned Value:
  *
  *   On success, this function returns a reference to the LCD object for
- *   the specified OLED.  NULL is returned on any failure.
+ *   the specified LCD.  NULL is returned on any failure.
  *
  ******************************************************************************/
-FAR struct lcd_dev_s *memlcd_initialize(FAR struct spi_dev_s *spi, unsigned int devno)
+FAR struct lcd_dev_s *memlcd_initialize(FAR struct spi_dev_s *spi,
+					FAR struct memlcd_priv_s *priv,
+					unsigned int devno)
 {
-	FAR struct memlcd_dev_s *priv = &g_memlcddev;
+	FAR struct memlcd_dev_s *mlcd = &g_memlcddev;
 
 	lcdvdbg("Initializing\n");
-	DEBUGASSERT(spi && devno == 0);
+	DEBUGASSERT(spi && priv && devno == 0);
 
-	/* save the reference to the spi device */
-	priv->spi = spi;
+	/* register board specific functions */
+	mlcd->priv = priv;
 
-	/* configure the spi */
+	mlcd->spi = spi;
 	memlcd_configspi(spi);
 
-	return &priv->dev;
+	mlcd->priv->attachirq(memlcd_extcominisr);
+
+	return &mlcd->dev;
 }

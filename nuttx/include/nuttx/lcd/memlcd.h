@@ -1,4 +1,4 @@
-/****************************************************************************
+/*******************************************************************************
  * include/nuttx/lcd/memlcd.h
  * Common definitions for the Sharp Memory LCD driver
  *
@@ -32,26 +32,16 @@
  * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  *
- ****************************************************************************/
+ ******************************************************************************/
 
 #ifndef __INCLUDE_NUTTX_MEMLCD_H
 #define __INCLUDE_NUTTX_MEMLCD_H
 
-/****************************************************************************
+/*******************************************************************************
  * Included Files
- ****************************************************************************/
+ ******************************************************************************/
 
 #include <stdbool.h>
-
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-/****************************************************************************
- * Public Types
- ****************************************************************************/
-/****************************************************************************
- * Public Data
- ****************************************************************************/
 
 #ifdef __cplusplus
 #define EXTERN extern "C"
@@ -60,11 +50,50 @@ extern "C" {
 #define EXTERN extern
 #endif
 
-/****************************************************************************
- * Public Function Prototypes
- ****************************************************************************/
+/*******************************************************************************
+ * Pre-processor Definitions
+ ******************************************************************************/
+/*******************************************************************************
+ * Public Types
+ ******************************************************************************/
 
-/**************************************************************************************
+/*
+ * A reference to a structure of this type must be passed to the initialization
+ * method. It provides some board-specific hooks used by driver to manage the
+ * timer and gpio (IRQ and DISP).
+ *
+ * Memory for this structure is provided by the caller.  It is not copied
+ * by the driver and is presumed to persist while the driver is active.
+ */
+struct memlcd_priv_s
+{
+  /*
+   * IRQ/GPIO access callbacks.  These operations all hidden behind
+   * callbacks to isolate the Memory LCD driver from differences in GPIO
+   * interrupt handling by varying boards and MCUs.
+   *
+   * irqattach   - Attach the driver interrupt handler to the GPIO interrupt
+   *               If isr is NULL, detach and disable it.
+   * dispcontrol - Enable or disable the DISP pin and EXTCOMIN interrupt.
+   * setpolarity - Board specified method to set EXTCOMIN.
+   *               Needed only when CONFIG_MEMLCD_EXTCOMIN_MODE_HW is not set.
+   */
+
+  int  (*attachirq)(xcpt_t isr);
+  void (*dispcontrol)(bool on);
+#ifndef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
+  void (*setpolarity)(bool pol);
+#endif
+};
+
+/*******************************************************************************
+ * Public Data
+ ******************************************************************************/
+/*******************************************************************************
+ * Public Function Prototypes
+ ******************************************************************************/
+
+/*******************************************************************************
  * Name:  memlcd_initialize
  *
  * Description:
@@ -72,19 +101,21 @@ extern "C" {
  * Input Parameters:
  *
  *   spi - A reference to the SPI driver instance.
- *   devno - A value in the range of 0 throuh CONFIG_P14201_NINTERFACES-1.  This allows
- *   support for multiple OLED devices.
+ *   devno - A value in the range of 0 throuh CONFIG_MEMLCD_NINTERFACES-1.
+ *   This allows support for multiple devices.
+ *   memlcd_priv_s - Board specific structure
  *
  * Returned Value:
  *
- *   On success, this function returns a reference to the LCD object for the specified
- *   OLED.  NULL is returned on any failure.
+ *   On success, this function returns a reference to the LCD object for the
+ *   specified LCD.  NULL is returned on any failure.
  *
- **************************************************************************************/
-
+ ******************************************************************************/
 struct lcd_dev_s; /* see nuttx/lcd.h */
 struct spi_dev_s; /* see nuttx/spi/spi.h */
-EXTERN FAR struct lcd_dev_s *memlcd_initialize(FAR struct spi_dev_s *spi, unsigned int devno);
+EXTERN FAR struct lcd_dev_s *memlcd_initialize(FAR struct spi_dev_s *spi,
+					       FAR struct memlcd_priv_s *priv,
+					       unsigned int devno);
 
 #undef EXTERN
 #ifdef __cplusplus
