@@ -72,6 +72,11 @@
 #error "This Memory LCD model is not supported yet."
 #endif
 
+/* lcd command */
+#define MEMLCD_CMD_UPDATE	(0x01)
+#define MEMLCD_CMD_ALL_CLEAR	(0x04)
+#define MEMLCD_CONTROL_BYTES	(0)
+
 /* display memory allocation */
 #define MEMLCD_FBSIZE		(MEMLCD_XRES*MEMLCD_YRES/8)
 
@@ -83,8 +88,8 @@
 #define MEMLCD_CONTRAST		32
 
 /* other misc settings */
-#define MEMLCD_SPI_FREQUENCY	3500000
-#define MEMLCD_SPI_BITS		16
+#define MEMLCD_SPI_FREQUENCY	2250000
+#define MEMLCD_SPI_BITS		(-8)
 #define MEMLCD_SPI_MODE		SPIDEV_MODE0
 
 /* debug */
@@ -229,9 +234,9 @@ static inline void memlcd_configspi(FAR struct spi_dev_s *spi)
 	SPI_SETMODE(spi, MEMLCD_SPI_MODE);
 	SPI_SETBITS(spi, MEMLCD_SPI_BITS);
 #ifdef CONFIG_MEMLCD_SPI_FREQUENCY
-	SPI_SETFREQUENCY(spi, CONFIG_MEMLCD_SPI_FREQUENCY)
+//	SPI_SETFREQUENCY(spi, CONFIG_MEMLCD_SPI_FREQUENCY)
 #else
-		SPI_SETFREQUENCY(spi, MEMLCD_SPI_FREQUENCY)
+//	SPI_SETFREQUENCY(spi, MEMLCD_SPI_FREQUENCY)
 #endif
 #endif
 }
@@ -274,9 +279,9 @@ static void memlcd_select(FAR struct spi_dev_s *spi)
 	SPI_SETMODE(spi, MEMLCD_SPI_MODE);
 	SPI_SETBITS(spi, MEMLCD_SPI_BITS);
 #ifdef CONFIG_MEMLCD_SPI_FREQUENCY
-	SPI_SETFREQUENCY(spi, CONFIG_MEMLCD_SPI_FREQUENCY);
+//	SPI_SETFREQUENCY(spi, CONFIG_MEMLCD_SPI_FREQUENCY);
 #else
-	SPI_SETFREQUENCY(spi, MEMLCD_SPI_FREQUENCY)
+//	SPI_SETFREQUENCY(spi, MEMLCD_SPI_FREQUENCY)
 #endif
 }
 #endif
@@ -325,8 +330,10 @@ static void memlcd_deselect(FAR struct spi_dev_s *spi)
  ******************************************************************************/
 static inline void memlcd_clear(FAR struct memlcd_dev_s *mlcd)
 {
+	uint16_t cmd = MEMLCD_CMD_ALL_CLEAR;
 	lcddbg("Clear display\n");
 	memlcd_select(mlcd->spi);
+	SPI_SNDBLOCK(mlcd->spi, &cmd, 2);
 	memlcd_deselect(mlcd->spi);
 }
 
@@ -352,9 +359,8 @@ static inline void memlcd_clear(FAR struct memlcd_dev_s *mlcd)
 static int memlcd_extcominisr(int irq, FAR void *context)
 {
 	static bool pol = 0;
+	static int cnt = 0;
 	struct memlcd_dev_s *mlcd = &g_memlcddev;
-	lcdvdbg("irq: %d\n", irq);
-	gdbg("irq: %d\n", irq);
 #ifdef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
 #error "CONFIG_MEMLCD_EXTCOMIN_MODE_HW unsupported yet!"
 #else
@@ -382,11 +388,35 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col, FAR const uint8_t *buff
 		size_t npixels)
 {
 	FAR struct memlcd_dev_s *mlcd = (FAR struct memlcd_dev_s *)&g_memlcddev;
+	uint16_t cmd;
+	uint8_t *p = NULL;
+	uint8_t *pfb = g_runbuffer;
+	int i;
 
 //	lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
 	DEBUGASSERT(buffer);
+#if 0
+	p = pfb + col;
+	for (i = 0; i < npixels*MEMLCD_BPP/8; i++)
+		*p++ = buffer[i];
+#else
+	memset(pfb, 0x0, sizeof(g_runbuffer));
+#endif
+
+	/*
+	 * Need to adjust start row by one because Memory LCD starts counting
+	 * lines from 1, while the display interface starts from 0.
+	 */
+	row++;
 
 	memlcd_select(mlcd->spi);
+
+	cmd = MEMLCD_CMD_UPDATE | row << 8;
+	SPI_SNDBLOCK(mlcd->spi, &cmd, 2);
+	SPI_SNDBLOCK(mlcd->spi, pfb, MEMLCD_YRES/8 + MEMLCD_CONTROL_BYTES);
+	cmd = 0xffff;
+	SPI_SNDBLOCK(mlcd->spi, &cmd, 2);
+
 	memlcd_deselect(mlcd->spi);
 
 	return OK;
@@ -490,6 +520,8 @@ static int memlcd_setpower(FAR struct lcd_dev_s *dev, int power)
 		mlcd->priv->dispcontrol(1);
 	else
 		mlcd->priv->dispcontrol(0);
+
+	memlcd_clear(mlcd);
 
 	return OK;
 }
