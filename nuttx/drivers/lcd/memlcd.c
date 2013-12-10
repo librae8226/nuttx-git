@@ -395,7 +395,7 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col, FAR const uint8_t *buff
 
 //	lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
 	DEBUGASSERT(buffer);
-#if 0
+#if 1
 	p = pfb + col;
 	for (i = 0; i < npixels*MEMLCD_BPP/8; i++)
 		*p++ = buffer[i];
@@ -446,10 +446,7 @@ static int memlcd_getrun(fb_coord_t row, fb_coord_t col, FAR uint8_t *buffer,
 //	lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
 	DEBUGASSERT(buffer);
 
-	memlcd_select(mlcd->spi);
-	memlcd_deselect(mlcd->spi);
-
-	return OK;
+	return -ENOSYS;
 }
 
 /*******************************************************************************
