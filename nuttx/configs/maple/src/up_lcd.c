@@ -104,7 +104,7 @@ static struct stm32_tim_dev_s *tim = NULL;
 static int memlcd_extcomin_isr(int irq, void *context)
 {
     STM32_TIM_ACKINT(tim, 0);
-    gvdbg("%s!!!\n", __func__);
+    return OK;
 }
 
 /****************************************************************************
@@ -123,25 +123,26 @@ static int memlcd_extcomin_isr(int irq, void *context)
 
 FAR int up_lcdinitialize(void)
 {
-  gvdbg("Initializing lcd\n");
+  lcddbg("Initializing lcd\n");
 
-  gvdbg("init spi1\n");
+  lcddbg("init spi1\n");
   spi = up_spiinitialize(1);
   DEBUGASSERT(spi);
 
-  gvdbg("configure related io\n");
+  lcddbg("configure related io\n");
   stm32_configgpio(GPIO_MEMLCD_EXTCOMIN);
   stm32_configgpio(GPIO_MEMLCD_DISP);
 
-  gvdbg("configure extcomin timer\n");
-  tim = stm32_tim_init(6);
+  lcddbg("configure EXTCOMIN timer\n");
+  tim = stm32_tim_init(2);
+  DEBUGASSERT(tim);
   STM32_TIM_SETPERIOD(tim, TIMER_FREQ/EXTCOMIN_FREQ);
   STM32_TIM_SETCLOCK(tim, TIMER_FREQ);
   STM32_TIM_SETMODE(tim, STM32_TIM_MODE_UP);
   STM32_TIM_SETISR(tim, memlcd_extcomin_isr, 0);
   STM32_TIM_ENABLEINT(tim, 0);
 
-  gvdbg("init lcd\n");
+  lcddbg("init lcd\n");
   l_lcddev = memlcd_initialize(spi, 0);
   DEBUGASSERT(l_lcddev);
 

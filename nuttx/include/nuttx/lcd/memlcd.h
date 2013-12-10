@@ -46,41 +46,9 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-/* P14201 Configuration Settings:
- *
- * CONFIG_P14201_SPIMODE - Controls the SPI mode
- * CONFIG_P14201_FREQUENCY - Define to use a different bus frequency
- * CONFIG_P14201_NINTERFACES - Specifies the number of physical P14201 devices that
- *   will be supported.
- * CONFIG_P14201_FRAMEBUFFER - If defined, accesses will be performed using an in-memory
- *   copy of the OLEDs GDDRAM.  This cost of this buffer is 128 * 96 / 2 = 6Kb.  If this
- *   is defined, then the driver will be fully functional. If not, then it will have the
- *   following limitations:
- *
- *   - Reading graphics memory cannot be supported, and
- *   - All pixel writes must be aligned to byte boundaries.
- *
- *   The latter limitation effectively reduces the 128x96 disply to 64x96.
- *
- * Required LCD driver settings:
- * CONFIG_LCD_P14201 - Enable P14201 support
- * CONFIG_LCD_MAXCONTRAST should be 255, but any value >0 and <=255 will be accepted.
- * CONFIG_LCD_MAXPOWER must be 1
- *
- * Required SPI driver settings:
- * CONFIG_SPI_CMDDATA - Include support for cmd/data selection.
- */
-
-/* Some important "colors" */
-
-#define RIT_Y4_BLACK 0x00
-#define RIT_Y4_WHITE 0x0f
-
 /****************************************************************************
  * Public Types
  ****************************************************************************/
-
 /****************************************************************************
  * Public Data
  ****************************************************************************/
@@ -97,12 +65,9 @@ extern "C" {
  ****************************************************************************/
 
 /**************************************************************************************
- * Name:  rit_initialize
+ * Name:  memlcd_initialize
  *
  * Description:
- *   Initialize the P14201 video hardware.  The initial state of the OLED is fully
- *   initialized, display memory cleared, and the OLED ready to use, but with the power
- *   setting at 0 (full off == sleep mode).
  *
  * Input Parameters:
  *
@@ -119,7 +84,7 @@ extern "C" {
 
 struct lcd_dev_s; /* see nuttx/lcd.h */
 struct spi_dev_s; /* see nuttx/spi/spi.h */
-EXTERN FAR struct lcd_dev_s *rit_initialize(FAR struct spi_dev_s *spi, unsigned int devno);
+EXTERN FAR struct lcd_dev_s *memlcd_initialize(FAR struct spi_dev_s *spi, unsigned int devno);
 
 #undef EXTERN
 #ifdef __cplusplus
