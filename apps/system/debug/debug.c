@@ -1,3 +1,4 @@
+
 /****************************************************************************
  * apps/system/debug/debug.c
  *
@@ -70,15 +71,16 @@ void up_ledoff(int led);
 
 FAR void *custom_thread_func(FAR void *arg)
 {
-	up_ledon(0);
-	printf("custom thread go forth!\n");
-	for(;;) {
-		sleep(5);
-		up_ledon(0);
-		usleep(20000);
-		up_ledoff(0);
-	}
-	return NULL;
+  up_ledon(0);
+  printf("custom thread go forth!\n");
+  for (;;)
+    {
+      sleep(5);
+      up_ledon(0);
+      usleep(20000);
+      up_ledoff(0);
+    }
+  return NULL;
 }
 
 /****************************************************************************
@@ -87,49 +89,50 @@ FAR void *custom_thread_func(FAR void *arg)
 
 int debug_main(int argc, char **argv)
 {
-	pthread_attr_t attr_custom;
-	int ret = 0;
-	struct lcd_dev_s *dev;
+  pthread_attr_t attr_custom;
+  int ret = 0;
+  struct lcd_dev_s *dev;
 
-	up_ledoff(0);
-	printf("Hello system debug! @%s\n", argv[0]);
+  up_ledoff(0);
+  printf("Hello system debug! @%s\n", argv[0]);
 
 #if 1
-	/* start a custom thread */
-	ret = pthread_attr_init(&attr_custom);
-	if (ret != OK)
-		goto out;
+  /* start a custom thread */
+  ret = pthread_attr_init(&attr_custom);
+  if (ret != OK)
+    goto out;
 
-	ret = pthread_create(&custom_thread, &attr_custom,
-			     custom_thread_func, (pthread_addr_t)0);
-	if (ret != 0)
-		goto out;
+  ret = pthread_create(&custom_thread, &attr_custom,
+                       custom_thread_func, (pthread_addr_t) 0);
+  if (ret != 0)
+    goto out;
 #else
-	/* Initialize the LCD device */
+  /* Initialize the LCD device */
 
-	printf("debug: Initializing LCD\n");
-	ret = up_lcdinitialize();
-	if (ret < 0)
-	{
-		printf("debug: up_lcdinitialize failed: %d\n", -ret);
-		goto out;
-	}
+  printf("debug: Initializing LCD\n");
+  ret = up_lcdinitialize();
+  if (ret < 0)
+    {
+      printf("debug: up_lcdinitialize failed: %d\n", -ret);
+      goto out;
+    }
 
-	/* Get the device instance */
+  /* Get the device instance */
 
-	dev = up_lcdgetdev(CONFIG_EXAMPLES_NX_DEVNO);
-	if (!dev)
-	{
-		printf("debug: up_lcdgetdev failed, devno=%d\n", CONFIG_EXAMPLES_NX_DEVNO);
-		goto out;
-	}
+  dev = up_lcdgetdev(CONFIG_EXAMPLES_NX_DEVNO);
+  if (!dev)
+    {
+      printf("debug: up_lcdgetdev failed, devno=%d\n",
+             CONFIG_EXAMPLES_NX_DEVNO);
+      goto out;
+    }
 
-	/* Turn the LCD on at 75% power */
+  /* Turn the LCD on at 75% power */
 
-	(void)dev->setpower(dev, ((3*CONFIG_LCD_MAXPOWER + 3)/4));
+  (void)dev->setpower(dev, ((3 * CONFIG_LCD_MAXPOWER + 3) / 4));
 #endif
 
-	return OK;
+  return OK;
 out:
-	return ERROR;
+  return ERROR;
 }

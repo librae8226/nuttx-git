@@ -1,3 +1,4 @@
+
 /************************************************************************************
  * configs/maple/src/up_spi.c
  *
@@ -61,22 +62,22 @@
 
 /* Enables debug output from this file (needs CONFIG_DEBUG too) */
 
-#ifndef CONFIG_DEBUG
-#  undef CONFIG_DEBUG_VERBOSE
-#  undef CONFIG_DEBUG_SPI
-#endif
+#  ifndef CONFIG_DEBUG
+#    undef CONFIG_DEBUG_VERBOSE
+#    undef CONFIG_DEBUG_SPI
+#  endif
 
-#ifdef CONFIG_DEBUG_SPI
-#  define spidbg lldbg
-#  ifdef CONFIG_DEBUG_VERBOSE
-#    define spivdbg lldbg
+#  ifdef CONFIG_DEBUG_SPI
+#    define spidbg lldbg
+#    ifdef CONFIG_DEBUG_VERBOSE
+#      define spivdbg lldbg
+#    else
+#      define spivdbg(x...)
+#    endif
 #  else
+#    define spidbg(x...)
 #    define spivdbg(x...)
 #  endif
-#else
-#  define spidbg(x...)
-#  define spivdbg(x...)
-#endif
 
 /************************************************************************************
  * Private Functions
@@ -96,7 +97,7 @@
 
 void weak_function stm32_spiinitialize(void)
 {
-  /*
+  /* 
    * NOTE: Clocking for SPI1 and/or SPI2 was already provided in stm32_rcc.c.
    *       Configurations of SPI pins is performed in stm32_spi.c.
    *       Here, we only initialize chip select pins unique to the board
@@ -130,14 +131,15 @@ void weak_function stm32_spiinitialize(void)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_STM32_SPI1
-void stm32_spi1select(FAR struct spi_dev_s *dev, enum spi_dev_e devid, bool selected)
+#  ifdef CONFIG_STM32_SPI1
+void stm32_spi1select(FAR struct spi_dev_s *dev, enum spi_dev_e devid,
+                      bool selected)
 {
   spidbg("devid: %d CS: %s\n", (int)devid, selected ? "assert" : "de-assert");
-#if defined(CONFIG_LCD_SHARP_MEMLCD)
+#    if defined(CONFIG_LCD_SHARP_MEMLCD)
   if (devid == SPIDEV_DISPLAY)
-      stm32_gpiowrite(GPIO_MEMLCD_CS, selected);
-#endif
+    stm32_gpiowrite(GPIO_MEMLCD_CS, selected);
+#    endif
 }
 
 uint8_t stm32_spi1status(FAR struct spi_dev_s *dev, enum spi_dev_e devid)
@@ -149,10 +151,11 @@ int stm32_spi1cmddata(FAR struct spi_dev_s *dev, enum spi_dev_e devid, bool cmd)
 {
   return -ENODEV;
 }
-#endif
+#  endif
 
-#ifdef CONFIG_STM32_SPI2
-void stm32_spi2select(FAR struct spi_dev_s *dev, enum spi_dev_e devid, bool selected)
+#  ifdef CONFIG_STM32_SPI2
+void stm32_spi2select(FAR struct spi_dev_s *dev, enum spi_dev_e devid,
+                      bool selected)
 {
 }
 
@@ -165,6 +168,7 @@ int stm32_spi1cmddata(FAR struct spi_dev_s *dev, enum spi_dev_e devid, bool cmd)
 {
   return -ENODEV;
 }
-#endif
+#  endif
 
-#endif /* CONFIG_STM32_SPI1 || CONFIG_STM32_SPI2 */
+#endif                                 /* CONFIG_STM32_SPI1 ||
+                                        * CONFIG_STM32_SPI2 */

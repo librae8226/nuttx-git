@@ -1,3 +1,4 @@
+
 /****************************************************************************
  * configs/maple/src/up_lcd.c
  *
@@ -65,9 +66,10 @@
 /* Configuration ************************************************************/
 
 #define EXTCOMIN_FREQ	24
-#define TIMER_FREQ	1200 /* 72000000/60000 */
+#define TIMER_FREQ	1200    /* 72000000/60000 */
 
 /* Debug ********************************************************************/
+
 /* Define CONFIG_DEBUG_LCD to enable detailed LCD debug output. Verbose debug must
  * also be enabled.
  */
@@ -83,9 +85,9 @@
 #endif
 
 #ifdef CONFIG_DEBUG_LCD
-# define lcddbg(format, arg...)  vdbg(format, ##arg)
+#  define lcddbg(format, arg...)  vdbg(format, ##arg)
 #else
-# define lcddbg(x...)
+#  define lcddbg(x...)
 #endif
 
 /****************************************************************************
@@ -103,50 +105,56 @@ static xcpt_t g_isr;
 
 static int up_lcdextcominisr(int irq, void *context)
 {
-    STM32_TIM_ACKINT(tim, 0);
-    if (g_isr == NULL) {
-	    lcddbg("error, irq not attached, disabled\n");
-	    STM32_TIM_DISABLEINT(tim, 0);
-	    return OK;
+  STM32_TIM_ACKINT(tim, 0);
+  if (g_isr == NULL)
+    {
+      lcddbg("error, irq not attached, disabled\n");
+      STM32_TIM_DISABLEINT(tim, 0);
+      return OK;
     }
-    return g_isr(irq, context);
+  return g_isr(irq, context);
 }
 
 static int up_lcdirqattach(xcpt_t isr)
 {
-	lcddbg("%s IRQ\n", isr == NULL ? "Detach" : "Attach");
-	if (isr != NULL) {
-		STM32_TIM_SETISR(tim, up_lcdextcominisr, 0);
-		g_isr = isr;
-	} else {
-		STM32_TIM_SETISR(tim, NULL, 0);
-		g_isr = NULL;
-	}
-	return OK;
+  lcddbg("%s IRQ\n", isr == NULL ? "Detach" : "Attach");
+  if (isr != NULL)
+    {
+      STM32_TIM_SETISR(tim, up_lcdextcominisr, 0);
+      g_isr = isr;
+    }
+  else
+    {
+      STM32_TIM_SETISR(tim, NULL, 0);
+      g_isr = NULL;
+    }
+  return OK;
 }
 
 static void up_lcddispcontrol(bool on)
 {
-	lcddbg("set: %s\n", on ? "on" : "off");
-	if (on) {
-		stm32_gpiowrite(GPIO_MEMLCD_DISP, 1);
-		STM32_TIM_ENABLEINT(tim, 0);
-	} else {
-		stm32_gpiowrite(GPIO_MEMLCD_DISP, 0);
-		STM32_TIM_DISABLEINT(tim, 0);
-	}
+  lcddbg("set: %s\n", on ? "on" : "off");
+  if (on)
+    {
+      stm32_gpiowrite(GPIO_MEMLCD_DISP, 1);
+      STM32_TIM_ENABLEINT(tim, 0);
+    }
+  else
+    {
+      stm32_gpiowrite(GPIO_MEMLCD_DISP, 0);
+      STM32_TIM_DISABLEINT(tim, 0);
+    }
 }
 
 #ifndef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
 static void up_lcdsetpolarity(bool pol)
 {
-	stm32_gpiowrite(GPIO_LED, pol);
-	stm32_gpiowrite(GPIO_MEMLCD_EXTCOMIN, pol);
+  stm32_gpiowrite(GPIO_LED, pol);
+  stm32_gpiowrite(GPIO_MEMLCD_EXTCOMIN, pol);
 }
 #endif
 
-static FAR struct memlcd_priv_s memlcd_priv =
-{
+static FAR struct memlcd_priv_s memlcd_priv = {
   .attachirq = up_lcdirqattach,
   .dispcontrol = up_lcddispcontrol,
 #ifndef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
@@ -181,11 +189,12 @@ FAR int up_lcdinitialize(void)
   stm32_configgpio(GPIO_MEMLCD_DISP);
 
   lcddbg("configure EXTCOMIN timer\n");
-  if (tim == NULL) {
-	  tim = stm32_tim_init(2);
-	  DEBUGASSERT(tim);
-  }
-  STM32_TIM_SETPERIOD(tim, TIMER_FREQ/EXTCOMIN_FREQ);
+  if (tim == NULL)
+    {
+      tim = stm32_tim_init(2);
+      DEBUGASSERT(tim);
+    }
+  STM32_TIM_SETPERIOD(tim, TIMER_FREQ / EXTCOMIN_FREQ);
   STM32_TIM_SETCLOCK(tim, TIMER_FREQ);
   STM32_TIM_SETMODE(tim, STM32_TIM_MODE_UP);
 
