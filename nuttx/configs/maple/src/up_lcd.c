@@ -92,9 +92,9 @@
  * Private Data
  ****************************************************************************/
 
-static struct lcd_dev_s *l_lcddev = NULL;
-static struct spi_dev_s *spi = NULL;
-static struct stm32_tim_dev_s *tim = NULL;
+static struct lcd_dev_s *l_lcddev;
+static struct spi_dev_s *spi;
+static struct stm32_tim_dev_s *tim;
 static xcpt_t g_isr;
 
 /****************************************************************************
@@ -140,6 +140,7 @@ static void up_lcddispcontrol(bool on)
 #ifndef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
 static void up_lcdsetpolarity(bool pol)
 {
+	stm32_gpiowrite(GPIO_LED, pol);
 	stm32_gpiowrite(GPIO_MEMLCD_EXTCOMIN, pol);
 }
 #endif

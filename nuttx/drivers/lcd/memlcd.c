@@ -363,6 +363,9 @@ static int memlcd_extcominisr(int irq, FAR void *context)
 	struct memlcd_dev_s *mlcd = &g_memlcddev;
 #ifdef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
 #error "CONFIG_MEMLCD_EXTCOMIN_MODE_HW unsupported yet!"
+	/*
+	 * start a worker thread here, do it in bottom half
+	 */
 #else
 	pol = !pol;
 	mlcd->priv->setpolarity(pol);
@@ -390,12 +393,13 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col, FAR const uint8_t *buff
 	FAR struct memlcd_dev_s *mlcd = (FAR struct memlcd_dev_s *)&g_memlcddev;
 	uint16_t cmd;
 	uint8_t *p = NULL;
-	uint8_t *pfb = g_runbuffer;
+	uint8_t *pfb = mlcd->fb;
 	int i;
 
 //	lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
 	DEBUGASSERT(buffer);
 #if 1
+	memcpy(pfb, g_runbuffer, MEMLCD_FBSIZE);
 	p = pfb + col;
 	for (i = 0; i < npixels*MEMLCD_BPP/8; i++)
 		*p++ = buffer[i];
