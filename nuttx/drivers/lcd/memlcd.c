@@ -93,6 +93,9 @@
 #define MEMLCD_SPI_BITS		(-8)
 #define MEMLCD_SPI_MODE		SPIDEV_MODE0
 
+#define LS_BIT			(1 << 0)
+#define MS_BIT			(1 << 7)
+
 /* debug */
 #ifdef CONFIG_DEBUG_LCD
 #  define lcddbg(format, arg...)  dbg(format, ##arg)
@@ -117,7 +120,7 @@ struct memlcd_dev_s
     uint8_t contrast;           /* Current contrast setting */
     uint8_t power;              /* Current power setting */
 
-    /* 
+    /*
      * The memlcds does not support reading the display memory in SPI mode.
      * Since there is 1 BPP and is byte access, it is necessary to keep a
      * shadow copy of the framebuffer. At 128x128, it amounts to 2KB.
@@ -165,7 +168,7 @@ static uint8_t g_runbuffer[MEMLCD_BPP * MEMLCD_XRES / 8];
 
 /* this structure describes the overall lcd video controller */
 static const struct fb_videoinfo_s g_videoinfo = {
-  .fmt = MEMLCD_COLORFMT,       /* color format: rgb16-565: rrrr rggg gggb bbbb 
+  .fmt = MEMLCD_COLORFMT,       /* color format: rgb16-565: rrrr rggg gggb bbbb
                                  */
   .xres = MEMLCD_XRES,          /* horizontal resolution in pixel columns */
   .yres = MEMLCD_YRES,          /* vertical resolution in pixel rows */
@@ -200,6 +203,38 @@ static struct memlcd_dev_s g_memlcddev = {
  ******************************************************************************/
 
 /******************************************************************************
+ * __set_bit - Set a bit in memory
+ * @nr: the bit to set
+ * @addr: the address to start counting from
+ *
+ * Unlike set_bit(), this function is non-atomic and may be reordered.
+ * If it's called on the same region of memory simultaneously, the effect
+ * may be that only one operation succeeds.
+ ******************************************************************************/
+
+#define BIT(nr)			(1 << (nr))
+#define BITS_PER_BYTE		8
+#define BIT_MASK(nr)		(1 << ((nr) % BITS_PER_BYTE))
+#define BIT_BYTE(nr)		((nr) / BITS_PER_BYTE)
+
+static inline void __set_bit(int nr, uint8_t *addr)
+{
+	uint8_t mask = BIT_MASK(nr);
+	uint8_t *p = ((uint8_t *)addr) + BIT_BYTE(nr);
+
+	*p  |= mask;
+}
+
+static inline void __clear_bit(int nr, uint8_t *addr)
+{
+	uint8_t mask = BIT_MASK(nr);
+	uint8_t *p = ((uint8_t *)addr) + BIT_BYTE(nr);
+
+	*p &= ~mask;
+}
+
+
+/******************************************************************************
  * Name: memlcd_configspi
  *
  * Description:
@@ -224,7 +259,7 @@ static inline void memlcd_configspi(FAR struct spi_dev_s *spi)
          MEMLCD_SPI_MODE, MEMLCD_SPI_BITS, MEMLCD_SPI_FREQUENCY);
 #endif
 
-  /* 
+  /*
    * Configure SPI for the Memory LCD.  But only if we own the SPI bus.
    * Otherwise, don't bother because it might change.
    */
@@ -263,14 +298,14 @@ static inline void memlcd_select(FAR struct spi_dev_s *spi)
 #else
 static void memlcd_select(FAR struct spi_dev_s *spi)
 {
-  /* 
+  /*
    * Select memlcd (locking the SPI bus in case there are multiple
    * devices competing for the SPI bus
    */
   SPI_LOCK(spi, true);
   SPI_SELECT(spi, SPIDEV_DISPLAY, true);
 
-  /* 
+  /*
    * Now make sure that the SPI bus is configured for the memlcd (it
    * might have gotten configured for a different device while unlocked)
    */
@@ -361,7 +396,7 @@ static int memlcd_extcominisr(int irq, FAR void *context)
   struct memlcd_dev_s *mlcd = &g_memlcddev;
 #ifdef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
 #  error "CONFIG_MEMLCD_EXTCOMIN_MODE_HW unsupported yet!"
-  /* 
+  /*
    * start a worker thread here, do it in bottom half
    */
 #else
@@ -392,20 +427,57 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
   uint16_t cmd;
   uint8_t *p = NULL;
   uint8_t *pfb = mlcd->fb;
+  uint8_t usrmask;
   int i;
 
-//      lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
   DEBUGASSERT(buffer);
-#if 1
-  memcpy(pfb, g_runbuffer, MEMLCD_FBSIZE);
-  p = pfb + col;
-  for (i = 0; i < npixels * MEMLCD_BPP / 8; i++)
-    *p++ = buffer[i];
+  lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
+
+#ifdef CONFIG_NX_PACKEDMSFIRST
+  usrmask = MS_BIT;
 #else
-  memset(pfb, 0x0, sizeof(g_runbuffer));
+  usrmask = LS_BIT;
 #endif
 
-  /* 
+  p = pfb + col/8;
+  for (i = 0; i < npixels; i++)
+    {
+      if ((*buffer & usrmask) != 0)
+          __set_bit(col%8+i, p);
+      else
+          __clear_bit(col%8+i, p);
+#ifdef CONFIG_NX_PACKEDMSFIRST
+      if (usrmask == LS_BIT)
+        {
+          buffer++;
+          usrmask = MS_BIT;
+        }
+      else
+        {
+          usrmask >>= 1;
+        }
+#else
+      if (usrmask == MS_BIT)
+        {
+          buffer++;
+          usrmask = LS_BIT;
+        }
+      else
+        {
+          usrmask <<= 1;
+        }
+#endif
+    }
+
+  if (npixels < MEMLCD_XRES)
+    {
+      lcdvdbg("buffer (hex): %02x %02x %02x %02x %02x\n",
+               buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
+      lcdvdbg("fb (%d %d): %02x %02x\n",
+               col/8, col%8, *p, *(p+1));
+    }
+
+  /*
    * Need to adjust start row by one because Memory LCD starts counting
    * lines from 1, while the display interface starts from 0.
    */
