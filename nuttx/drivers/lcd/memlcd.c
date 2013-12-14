@@ -469,7 +469,7 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
         }
 #endif
     }
-
+#if 0
   if (npixels < MEMLCD_XRES)
     {
       //lcdvdbg("buffer (hex): %02x %02x %02x %02x %02x\n",
@@ -480,7 +480,7 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
 	       *(pfb+8), *(pfb+9), *(pfb+10), *(pfb+11), *(pfb+12), *(pfb+13), *(pfb+14), *(pfb+15),
 	       row, col);
     }
-
+#endif
   /*
    * Need to adjust start row by one because Memory LCD starts counting
    * lines from 1, while the display interface starts from 0.
