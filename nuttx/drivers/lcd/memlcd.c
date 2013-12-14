@@ -425,13 +425,13 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
 {
   FAR struct memlcd_dev_s *mlcd = (FAR struct memlcd_dev_s *)&g_memlcddev;
   uint16_t cmd;
-  uint8_t *p = NULL;
-  uint8_t *pfb = mlcd->fb;
+  uint8_t *p;
+  uint8_t *pfb;
   uint8_t usrmask;
   int i;
 
   DEBUGASSERT(buffer);
-  lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
+  //lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
 
 #ifdef CONFIG_NX_PACKEDMSFIRST
   usrmask = MS_BIT;
@@ -439,6 +439,7 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
   usrmask = LS_BIT;
 #endif
 
+  pfb = &mlcd->fb[row*(MEMLCD_XRES/8)];
   p = pfb + col/8;
   for (i = 0; i < npixels; i++)
     {
@@ -471,10 +472,13 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
 
   if (npixels < MEMLCD_XRES)
     {
-      lcdvdbg("buffer (hex): %02x %02x %02x %02x %02x\n",
-               buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
-      lcdvdbg("fb (%d %d): %02x %02x\n",
-               col/8, col%8, *p, *(p+1));
+      //lcdvdbg("buffer (hex): %02x %02x %02x %02x %02x\n",
+      //         buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
+      lcdvdbg("%02x %02x %02x %02x %02x %02x %02x %02x "
+              "%02x %02x %02x %02x %02x %02x %02x %02x fb(%d, %d)\n",
+               *pfb, *(pfb+1), *(pfb+2), *(pfb+3), *(pfb+4), *(pfb+5), *(pfb+6), *(pfb+7),
+	       *(pfb+8), *(pfb+9), *(pfb+10), *(pfb+11), *(pfb+12), *(pfb+13), *(pfb+14), *(pfb+15),
+	       row, col);
     }
 
   /*
@@ -502,9 +506,6 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
  * Description:
  *   This method can be used to read a partial raster line from the LCD.
  *
- * Description:
- *   This method can be used to write a partial raster line to the LCD.
- *
  *  row     - Starting row to read from (range: 0 <= row < yres)
  *  col     - Starting column to read read (range: 0 <= col <= xres-npixels)
  *  buffer  - The buffer in which to return the run read from the LCD
@@ -515,12 +516,54 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
 static int memlcd_getrun(fb_coord_t row, fb_coord_t col, FAR uint8_t * buffer,
                          size_t npixels)
 {
-  FAR struct memlcd_dev_s *mlcd = &g_memlcddev;
+  FAR struct memlcd_dev_s *mlcd = (FAR struct memlcd_dev_s *)&g_memlcddev;
+  uint16_t cmd;
+  uint8_t *p;
+  uint8_t *pfb;
+  uint8_t usrmask;
+  int i;
 
-//      lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
   DEBUGASSERT(buffer);
+  lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
 
-  return -ENOSYS;
+#ifdef CONFIG_NX_PACKEDMSFIRST
+  usrmask = MS_BIT;
+#else
+  usrmask = LS_BIT;
+#endif
+
+  pfb = &mlcd->fb[row*(MEMLCD_XRES/8)];
+  p = pfb + col/8;
+  for (i = 0; i < npixels; i++)
+    {
+      if ((*buffer & usrmask) != 0)
+          __set_bit(col%8+i, p);
+      else
+          __clear_bit(col%8+i, p);
+#ifdef CONFIG_NX_PACKEDMSFIRST
+      if (usrmask == LS_BIT)
+        {
+          buffer++;
+          usrmask = MS_BIT;
+        }
+      else
+        {
+          usrmask >>= 1;
+        }
+#else
+      if (usrmask == MS_BIT)
+        {
+          buffer++;
+          usrmask = LS_BIT;
+        }
+      else
+        {
+          usrmask <<= 1;
+        }
+#endif
+    }
+
+  return OK;
 }
 
 /*******************************************************************************
