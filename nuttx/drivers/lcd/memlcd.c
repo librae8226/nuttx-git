@@ -89,7 +89,7 @@
 #define MEMLCD_CONTRAST		32
 
 /* other misc settings */
-#define MEMLCD_SPI_FREQUENCY	2250000
+#define MEMLCD_SPI_FREQUENCY	3500000
 #define MEMLCD_SPI_BITS		(-8)
 #define MEMLCD_SPI_MODE		SPIDEV_MODE0
 
@@ -267,9 +267,9 @@ static inline void memlcd_configspi(FAR struct spi_dev_s *spi)
   SPI_SETMODE(spi, MEMLCD_SPI_MODE);
   SPI_SETBITS(spi, MEMLCD_SPI_BITS);
 #  ifdef CONFIG_MEMLCD_SPI_FREQUENCY
-//      SPI_SETFREQUENCY(spi, CONFIG_MEMLCD_SPI_FREQUENCY)
+  SPI_SETFREQUENCY(spi, CONFIG_MEMLCD_SPI_FREQUENCY);
 #  else
-//      SPI_SETFREQUENCY(spi, MEMLCD_SPI_FREQUENCY)
+  SPI_SETFREQUENCY(spi, MEMLCD_SPI_FREQUENCY);
 #  endif
 #endif
 }
@@ -312,9 +312,9 @@ static void memlcd_select(FAR struct spi_dev_s *spi)
   SPI_SETMODE(spi, MEMLCD_SPI_MODE);
   SPI_SETBITS(spi, MEMLCD_SPI_BITS);
 #  ifdef CONFIG_MEMLCD_SPI_FREQUENCY
-//      SPI_SETFREQUENCY(spi, CONFIG_MEMLCD_SPI_FREQUENCY);
+  SPI_SETFREQUENCY(spi, CONFIG_MEMLCD_SPI_FREQUENCY);
 #  else
-//      SPI_SETFREQUENCY(spi, MEMLCD_SPI_FREQUENCY)
+  SPI_SETFREQUENCY(spi, MEMLCD_SPI_FREQUENCY);
 #  endif
 }
 #endif
@@ -366,7 +366,9 @@ static inline void memlcd_clear(FAR struct memlcd_dev_s *mlcd)
   uint16_t cmd = MEMLCD_CMD_ALL_CLEAR;
   lcddbg("Clear display\n");
   memlcd_select(mlcd->spi);
+  /* XXX Ensure 2us here */
   SPI_SNDBLOCK(mlcd->spi, &cmd, 2);
+  /* XXX Ensure 6us here */
   memlcd_deselect(mlcd->spi);
 }
 
@@ -431,7 +433,7 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
   int i;
 
   DEBUGASSERT(buffer);
-  //lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
+  lcdvdbg("row: %d col: %d npixels: %d\n", row, col, npixels);
 
 #ifdef CONFIG_NX_PACKEDMSFIRST
   usrmask = MS_BIT;
@@ -469,18 +471,7 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
         }
 #endif
     }
-#if 0
-  if (npixels < MEMLCD_XRES)
-    {
-      //lcdvdbg("buffer (hex): %02x %02x %02x %02x %02x\n",
-      //         buffer[0], buffer[1], buffer[2], buffer[3], buffer[4]);
-      lcdvdbg("%02x %02x %02x %02x %02x %02x %02x %02x "
-              "%02x %02x %02x %02x %02x %02x %02x %02x fb(%d, %d)\n",
-               *pfb, *(pfb+1), *(pfb+2), *(pfb+3), *(pfb+4), *(pfb+5), *(pfb+6), *(pfb+7),
-	       *(pfb+8), *(pfb+9), *(pfb+10), *(pfb+11), *(pfb+12), *(pfb+13), *(pfb+14), *(pfb+15),
-	       row, col);
-    }
-#endif
+
   /*
    * Need to adjust start row by one because Memory LCD starts counting
    * lines from 1, while the display interface starts from 0.
@@ -489,11 +480,15 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
 
   memlcd_select(mlcd->spi);
 
+  /* XXX Ensure 6us here */
+
   cmd = MEMLCD_CMD_UPDATE | row << 8;
   SPI_SNDBLOCK(mlcd->spi, &cmd, 2);
   SPI_SNDBLOCK(mlcd->spi, pfb, MEMLCD_YRES / 8 + MEMLCD_CONTROL_BYTES);
   cmd = 0xffff;
   SPI_SNDBLOCK(mlcd->spi, &cmd, 2);
+
+  /* XXX Ensure 2us here */
 
   memlcd_deselect(mlcd->spi);
 
@@ -612,7 +607,7 @@ static int memlcd_getpower(FAR struct lcd_dev_s *dev)
 {
   FAR struct memlcd_dev_s *mlcd = (FAR struct memlcd_dev_s *)dev;
   DEBUGASSERT(mlcd);
-  lcdvdbg("%d\n", mlcd->power);
+  lcddbg("%d\n", mlcd->power);
   return mlcd->power;
 }
 
@@ -628,7 +623,7 @@ static int memlcd_setpower(FAR struct lcd_dev_s *dev, int power)
 {
   struct memlcd_dev_s *mlcd = (struct memlcd_dev_s *)dev;
   DEBUGASSERT(mlcd && (unsigned)power <= CONFIG_LCD_MAXPOWER && mlcd->spi);
-  lcdvdbg("%d\n", power);
+  lcddbg("%d\n", power);
   mlcd->power = power;
 
   if (power > 0)
@@ -652,7 +647,7 @@ static int memlcd_getcontrast(struct lcd_dev_s *dev)
 {
   struct memlcd_dev_s *mlcd = (struct memlcd_dev_s *)dev;
   DEBUGASSERT(mlcd);
-  lcdvdbg("contrast: %d\n", mlcd->contrast);
+  lcddbg("contrast: %d\n", mlcd->contrast);
   return mlcd->contrast;
 }
 
@@ -667,7 +662,7 @@ static int memlcd_setcontrast(struct lcd_dev_s *dev, unsigned int contrast)
 {
   struct memlcd_dev_s *mlcd = (struct memlcd_dev_s *)dev;
   DEBUGASSERT(mlcd);
-  lcdvdbg("contrast: %d\n", contrast);
+  lcddbg("contrast: %d\n", contrast);
   return OK;
 }
 
@@ -701,7 +696,6 @@ FAR struct lcd_dev_s *memlcd_initialize(FAR struct spi_dev_s *spi,
 {
   FAR struct memlcd_dev_s *mlcd = &g_memlcddev;
 
-  lcdvdbg("Initializing\n");
   DEBUGASSERT(spi && priv && devno == 0);
 
   /* register board specific functions */
@@ -712,5 +706,6 @@ FAR struct lcd_dev_s *memlcd_initialize(FAR struct spi_dev_s *spi,
 
   mlcd->priv->attachirq(memlcd_extcominisr);
 
+  lcddbg("done\n");
   return &mlcd->dev;
 }
