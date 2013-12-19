@@ -221,7 +221,6 @@ static inline void __set_bit(int nr, uint8_t *addr)
 {
 	uint8_t mask = BIT_MASK(nr);
 	uint8_t *p = ((uint8_t *)addr) + BIT_BYTE(nr);
-
 	*p  |= mask;
 }
 
@@ -229,8 +228,12 @@ static inline void __clear_bit(int nr, uint8_t *addr)
 {
 	uint8_t mask = BIT_MASK(nr);
 	uint8_t *p = ((uint8_t *)addr) + BIT_BYTE(nr);
-
 	*p &= ~mask;
+}
+
+static inline int __test_bit(int nr, const volatile uint8_t *addr)
+{
+	return 1 & (addr[BIT_BYTE(nr)] >> (nr & (BITS_PER_BYTE-1)));
 }
 
 
@@ -449,6 +452,7 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
           __set_bit(col%8+i, p);
       else
           __clear_bit(col%8+i, p);
+
 #ifdef CONFIG_NX_PACKEDMSFIRST
       if (usrmask == LS_BIT)
         {
@@ -531,10 +535,11 @@ static int memlcd_getrun(fb_coord_t row, fb_coord_t col, FAR uint8_t * buffer,
   p = pfb + col/8;
   for (i = 0; i < npixels; i++)
     {
-      if ((*buffer & usrmask) != 0)
-          __set_bit(col%8+i, p);
-      else
-          __clear_bit(col%8+i, p);
+      if (__test_bit(col%8+i, p))
+        {
+          *buffer |= usrmask;
+        }
+
 #ifdef CONFIG_NX_PACKEDMSFIRST
       if (usrmask == LS_BIT)
         {
