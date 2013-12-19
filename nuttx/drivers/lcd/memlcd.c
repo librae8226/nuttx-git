@@ -96,7 +96,7 @@
 #define MEMLCD_CONTRAST		32
 
 /* other misc settings */
-#define MEMLCD_SPI_FREQUENCY	3500000
+#define MEMLCD_SPI_FREQUENCY	2250000
 #define MEMLCD_SPI_BITS		(-8)
 #define MEMLCD_SPI_MODE		SPIDEV_MODE0
 
