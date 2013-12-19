@@ -397,7 +397,6 @@ static inline void memlcd_clear(FAR struct memlcd_dev_s *mlcd)
 static int memlcd_extcominisr(int irq, FAR void *context)
 {
   static bool pol = 0;
-  static int cnt = 0;
   struct memlcd_dev_s *mlcd = &g_memlcddev;
 #ifdef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
 #  error "CONFIG_MEMLCD_EXTCOMIN_MODE_HW unsupported yet!"
@@ -516,7 +515,6 @@ static int memlcd_getrun(fb_coord_t row, fb_coord_t col, FAR uint8_t * buffer,
                          size_t npixels)
 {
   FAR struct memlcd_dev_s *mlcd = (FAR struct memlcd_dev_s *)&g_memlcddev;
-  uint16_t cmd;
   uint8_t *p;
   uint8_t *pfb;
   uint8_t usrmask;
