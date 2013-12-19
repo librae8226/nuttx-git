@@ -78,14 +78,21 @@
 #define MEMLCD_CMD_ALL_CLEAR	(0x04)
 #define MEMLCD_CONTROL_BYTES	(0)
 
-/* display memory allocation */
-#define MEMLCD_FBSIZE		(MEMLCD_XRES*MEMLCD_YRES/8)
-
 /* color depth and format */
 #define MEMLCD_BPP		1
 #define MEMLCD_COLORFMT		FB_FMT_Y1
 
-/* contrast setting, in fact this is VCOM toggle frequency */
+/* bytes per logical row and column */
+#define MEMLCD_XSTRIDE		(MEMLCD_XRES >> 3)
+#define MEMLCD_YSTRIDE		(MEMLCD_YRES >> 3)
+
+/* display memory allocation */
+#define MEMLCD_FBSIZE		(MEMLCD_XSTRIDE*MEMLCD_YRES)
+
+/*
+ * contrast setting, related to VCOM toggle frequency
+ * higher frequency gives better contrast, instead, saves power
+ */
 #define MEMLCD_CONTRAST		32
 
 /* other misc settings */
@@ -384,8 +391,8 @@ static inline void memlcd_clear(FAR struct memlcd_dev_s *mlcd)
  *   Basically, the frequency shall be 1Hz~60Hz.
  *   If use hardware mode to toggle VCOM, we need to send specific command at a
  *   constant frequency to trigger the LCD intenal hardware logic.
- *   While use software mode, we set up a timer, basically, it is a hardware
- *   timer to ensure a constant frequency.
+ *   While use software mode, we set up a timer to toggle EXTCOMIN connected IO,
+ *   basically, it is a hardware timer to ensure a constant frequency.
  *
  * Input Parameters:
  *   mlcd   - Reference to private driver structure
@@ -401,7 +408,7 @@ static int memlcd_extcominisr(int irq, FAR void *context)
 #ifdef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
 #  error "CONFIG_MEMLCD_EXTCOMIN_MODE_HW unsupported yet!"
   /*
-   * start a worker thread here, do it in bottom half
+   * start a worker thread, do it in bottom half?
    */
 #else
   pol = !pol;
@@ -443,8 +450,8 @@ static int memlcd_putrun(fb_coord_t row, fb_coord_t col,
   usrmask = LS_BIT;
 #endif
 
-  pfb = &mlcd->fb[row*(MEMLCD_XRES/8)];
-  p = pfb + col/8;
+  pfb = &mlcd->fb[row * MEMLCD_XSTRIDE];
+  p = pfb + (col >> 3);
   for (i = 0; i < npixels; i++)
     {
       if ((*buffer & usrmask) != 0)
@@ -529,8 +536,8 @@ static int memlcd_getrun(fb_coord_t row, fb_coord_t col, FAR uint8_t * buffer,
   usrmask = LS_BIT;
 #endif
 
-  pfb = &mlcd->fb[row*(MEMLCD_XRES/8)];
-  p = pfb + col/8;
+  pfb = &mlcd->fb[row * MEMLCD_XSTRIDE];
+  p = pfb + (col >> 3);
   for (i = 0; i < npixels; i++)
     {
       if (__test_bit(col%8+i, p))
@@ -630,11 +637,14 @@ static int memlcd_setpower(FAR struct lcd_dev_s *dev, int power)
   mlcd->power = power;
 
   if (power > 0)
-    mlcd->priv->dispcontrol(1);
+    {
+      mlcd->priv->dispcontrol(1);
+      memlcd_clear(mlcd);
+    }
   else
-    mlcd->priv->dispcontrol(0);
-
-  memlcd_clear(mlcd);
+    {
+      mlcd->priv->dispcontrol(0);
+    }
 
   return OK;
 }

@@ -193,10 +193,10 @@ FAR int up_lcdinitialize(void)
     {
       tim = stm32_tim_init(2);
       DEBUGASSERT(tim);
+      STM32_TIM_SETPERIOD(tim, TIMER_FREQ / EXTCOMIN_FREQ);
+      STM32_TIM_SETCLOCK(tim, TIMER_FREQ);
+      STM32_TIM_SETMODE(tim, STM32_TIM_MODE_UP);
     }
-  STM32_TIM_SETPERIOD(tim, TIMER_FREQ / EXTCOMIN_FREQ);
-  STM32_TIM_SETCLOCK(tim, TIMER_FREQ);
-  STM32_TIM_SETMODE(tim, STM32_TIM_MODE_UP);
 
   lcddbg("init lcd\n");
   l_lcddev = memlcd_initialize(spi, &memlcd_priv, 0);
