@@ -93,7 +93,9 @@
  * contrast setting, related to VCOM toggle frequency
  * higher frequency gives better contrast, instead, saves power
  */
-#define MEMLCD_CONTRAST		32
+#define MEMLCD_CONTRAST		24
+#define MEMLCD_MAXCONTRAST	60
+#define MEMLCD_MINCONTRAST	1
 
 /* other misc settings */
 #define MEMLCD_SPI_FREQUENCY	2250000
@@ -676,6 +678,16 @@ static int memlcd_setcontrast(struct lcd_dev_s *dev, unsigned int contrast)
   struct memlcd_dev_s *mlcd = (struct memlcd_dev_s *)dev;
   DEBUGASSERT(mlcd);
   lcddbg("contrast: %d\n", contrast);
+  if (contrast > MEMLCD_MAXCONTRAST)
+    {
+      contrast = MEMLCD_MAXCONTRAST;
+    }
+  if (contrast < MEMLCD_MINCONTRAST)
+    {
+      contrast = MEMLCD_MINCONTRAST;
+    }
+  mlcd->contrast = contrast;
+  mlcd->priv->setvcomfreq(contrast);
   return OK;
 }
 

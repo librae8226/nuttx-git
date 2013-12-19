@@ -77,6 +77,7 @@ struct memlcd_priv_s
    * dispcontrol - Enable or disable the DISP pin and EXTCOMIN interrupt.
    * setpolarity - Board specified method to set EXTCOMIN.
    *               Needed only when CONFIG_MEMLCD_EXTCOMIN_MODE_HW is not set.
+   * setvcomfreq - Set timer frequency for EXTCOMIN.
    */
 
   int  (*attachirq)(xcpt_t isr);
@@ -84,6 +85,7 @@ struct memlcd_priv_s
 #ifndef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
   void (*setpolarity)(bool pol);
 #endif
+  void (*setvcomfreq)(unsigned int freq);
 };
 
 /*******************************************************************************

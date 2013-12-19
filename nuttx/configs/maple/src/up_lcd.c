@@ -154,12 +154,20 @@ static void up_lcdsetpolarity(bool pol)
 }
 #endif
 
+static void up_lcdsetvcomfreq(unsigned int freq)
+{
+  lcddbg("freq: %d\n", freq);
+  DEBUGASSERT(freq >= 1 && freq <= 60);
+  STM32_TIM_SETPERIOD(tim, TIMER_FREQ / freq);
+}
+
 static FAR struct memlcd_priv_s memlcd_priv = {
   .attachirq = up_lcdirqattach,
   .dispcontrol = up_lcddispcontrol,
 #ifndef CONFIG_MEMLCD_EXTCOMIN_MODE_HW
   .setpolarity = up_lcdsetpolarity,
 #endif
+  .setvcomfreq = up_lcdsetvcomfreq,
 };
 
 /****************************************************************************
