@@ -546,6 +546,10 @@ static int memlcd_getrun(fb_coord_t row, fb_coord_t col, FAR uint8_t * buffer,
         {
           *buffer |= usrmask;
         }
+      else
+        {
+          *buffer &= ~usrmask;
+        }
 
 #ifdef CONFIG_NX_PACKEDMSFIRST
       if (usrmask == LS_BIT)
