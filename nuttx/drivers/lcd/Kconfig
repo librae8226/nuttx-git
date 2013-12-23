@@ -434,10 +434,10 @@ endchoice
 endif
 
 config LCD_SHARP_MEMLCD
-	bool "Sharp Memory LCD series Display"
+	bool "Sharp Memory LCD Suite"
 	default n
 	---help---
-		memlcd.c. Driver for Sharp Memory LCD series display.
+		memlcd.c. Driver for Sharp Memory LCD Suite.
 
 if LCD_SHARP_MEMLCD
 
