@@ -116,15 +116,5 @@ void stm32_spiinitialize(void);
 
 void stm32_usbinitialize(void);
 
-/************************************************************************************
- * Name: up_wlinitialize
- *
- * Description:
- *   Called to configure wireless module (nRF24L01).
- *
- ************************************************************************************/
-
-void up_wlinitialize(void);
-
 #endif /* __ASSEMBLY__ */
 #endif /* __CONFIGS_MAPLE_SRC_MAPLE_INTERNAL_H */
