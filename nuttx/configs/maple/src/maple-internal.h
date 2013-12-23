@@ -1,3 +1,4 @@
+
 /************************************************************************************
  * configs/maple/src/maple-internal.h
  *
@@ -35,15 +36,15 @@
  ************************************************************************************/
 
 #ifndef __CONFIGS_MAPLE_SRC_MAPLE_INTERNAL_H
-#define __CONFIGS_MAPLE_SRC_MAPLE_INTERNAL_H
+#  define __CONFIGS_MAPLE_SRC_MAPLE_INTERNAL_H
 
 /************************************************************************************
  * Included Files
  ************************************************************************************/
 
-#include <nuttx/config.h>
-#include <nuttx/compiler.h>
-#include <stdint.h>
+#  include <nuttx/config.h>
+#  include <nuttx/compiler.h>
+#  include <stdint.h>
 
 /************************************************************************************
  * Definitions
@@ -54,26 +55,33 @@
  * expanded).
  */
 
-#if STM32_NSPI < 1
-#  undef CONFIG_STM32_SPI1
-#  undef CONFIG_STM32_SPI2
-#elif STM32_NSPI < 2
-#  undef CONFIG_STM32_SPI2
-#endif
+#  if STM32_NSPI < 1
+#    undef CONFIG_STM32_SPI1
+#    undef CONFIG_STM32_SPI2
+#  elif STM32_NSPI < 2
+#    undef CONFIG_STM32_SPI2
+#  endif
 
 /* GPIOs **************************************************************/
 
-#ifdef CONFIG_MAPLE_MINI
-#define GPIO_LED        (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
+#  ifdef CONFIG_MAPLE_MINI
+#    define GPIO_LED        (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
                          GPIO_OUTPUT_CLEAR|GPIO_PORTB|GPIO_PIN1)
-#define GPIO_USB_PULLUP (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
+#    define GPIO_USB_PULLUP (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
                          GPIO_OUTPUT_SET|GPIO_PORTB|GPIO_PIN9)
-#else
-#define GPIO_LED        (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
+#  else
+#    define GPIO_LED        (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
                          GPIO_OUTPUT_CLEAR|GPIO_PORTA|GPIO_PIN5)
-#define GPIO_USB_PULLUP (GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
+#    define GPIO_USB_PULLUP	(GPIO_OUTPUT|GPIO_CNF_OUTPP|GPIO_MODE_50MHz|\
                          GPIO_OUTPUT_SET|GPIO_PORTC|GPIO_PIN12)
-#endif
+#  endif
+
+#  define GPIO_MEMLCD_EXTCOMIN	(GPIO_PORTA | GPIO_PIN13 | GPIO_OUTPUT_CLEAR | \
+				 GPIO_OUTPUT | GPIO_CNF_OUTPP | GPIO_MODE_50MHz)
+#  define GPIO_MEMLCD_DISP	(GPIO_PORTA | GPIO_PIN14 | GPIO_OUTPUT_CLEAR | \
+				 GPIO_OUTPUT | GPIO_CNF_OUTPP | GPIO_MODE_50MHz)
+#  define GPIO_MEMLCD_CS		(GPIO_PORTA | GPIO_PIN15 | GPIO_OUTPUT_CLEAR | \
+				 GPIO_OUTPUT | GPIO_CNF_OUTPP | GPIO_MODE_50MHz)
 
 /************************************************************************************
  * Public Types
@@ -83,7 +91,7 @@
  * Public data
  ************************************************************************************/
 
-#ifndef __ASSEMBLY__
+#  ifndef __ASSEMBLY__
 
 /************************************************************************************
  * Public Functions
@@ -109,15 +117,5 @@ void stm32_spiinitialize(void);
 
 void stm32_usbinitialize(void);
 
-/************************************************************************************
- * Name: up_wlinitialize
- *
- * Description:
- *   Called to configure wireless module (nRF24L01).
- *
- ************************************************************************************/
-
-void up_wlinitialize(void);
-
-#endif /* __ASSEMBLY__ */
-#endif /* __CONFIGS_MAPLE_SRC_MAPLE_INTERNAL_H */
+#  endif                               /* __ASSEMBLY__ */
+#endif                                 /* __CONFIGS_MAPLE_SRC_MAPLE_INTERNAL_H */
