@@ -3,6 +3,10 @@
 # see misc/tools/kconfig-language.txt.
 #
 
+menu "Custom Debug Command"
+source "$APPSDIR/system/debug/Kconfig"
+endmenu
+
 menu "USB CDC/ACM Device Commands"
 source "$APPSDIR/system/cdcacm/Kconfig"
 endmenu
