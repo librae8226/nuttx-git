@@ -16,7 +16,7 @@ CONFIG_HOST_LINUX=y
 #
 # Build Configuration
 #
-# CONFIG_APPS_DIR="../apps"
+CONFIG_APPS_DIR="../apps"
 CONFIG_BUILD_FLAT=y
 # CONFIG_BUILD_2PASS is not set
 
@@ -41,9 +41,32 @@ CONFIG_BUILD_FLAT=y
 #
 # Debug Options
 #
-# CONFIG_DEBUG is not set
-# CONFIG_ARCH_HAVE_STACKCHECK is not set
+CONFIG_DEBUG=y
 # CONFIG_ARCH_HAVE_HEAPCHECK is not set
+# CONFIG_DEBUG_VERBOSE is not set
+
+#
+# Subsystem Debug Options
+#
+CONFIG_DEBUG_AUDIO=y
+CONFIG_DEBUG_BINFMT=y
+CONFIG_DEBUG_FS=y
+CONFIG_DEBUG_GRAPHICS=y
+CONFIG_DEBUG_LIB=y
+CONFIG_DEBUG_MM=y
+CONFIG_DEBUG_SCHED=y
+
+#
+# OS Function Debug Options
+#
+# CONFIG_DEBUG_IRQ is not set
+
+#
+# Driver Debug Options
+#
+# CONFIG_DEBUG_ANALOG is not set
+# CONFIG_DEBUG_GPIO is not set
+# CONFIG_ARCH_HAVE_STACKCHECK is not set
 CONFIG_DEBUG_SYMBOLS=y
 # CONFIG_ARCH_HAVE_CUSTOMOPT is not set
 CONFIG_DEBUG_NOOPT=y
@@ -67,10 +90,10 @@ CONFIG_ARCH="sim"
 #
 # Simulation Configuration Options
 #
-CONFIG_HOST_X86_64=y
-# CONFIG_HOST_X86 is not set
-# CONFIG_SIM_M32 is not set
+# CONFIG_HOST_X86_64 is not set
+CONFIG_HOST_X86=y
 CONFIG_SIM_WALLTIME=y
+# CONFIG_SIM_FRAMEBUFFER is not set
 # CONFIG_SIM_SPIFLASH is not set
 
 #
@@ -138,6 +161,7 @@ CONFIG_NSH_MMCSDMINOR=0
 #
 # Board-Specific Options
 #
+# CONFIG_LIB_BOARDCTL is not set
 
 #
 # RTOS Features
@@ -229,6 +253,13 @@ CONFIG_PREALLOC_MQ_MSGS=32
 CONFIG_MQ_MAXMSGSIZE=32
 
 #
+# Work Queue Support
+#
+# CONFIG_SCHED_WORKQUEUE is not set
+# CONFIG_SCHED_HPWORK is not set
+# CONFIG_SCHED_LPWORK is not set
+
+#
 # Stack and heap information
 #
 CONFIG_IDLETHREAD_STACKSIZE=4096
@@ -258,9 +289,13 @@ CONFIG_DEV_NULL=y
 # CONFIG_I2C is not set
 # CONFIG_SPI is not set
 # CONFIG_I2S is not set
+
+#
+# Timer Driver Support
+#
+# CONFIG_TIMER is not set
 # CONFIG_RTC is not set
 # CONFIG_WATCHDOG is not set
-# CONFIG_TIMER is not set
 # CONFIG_ANALOG is not set
 # CONFIG_AUDIO_DEVICES is not set
 # CONFIG_VIDEO_DEVICES is not set
@@ -269,6 +304,7 @@ CONFIG_DEV_NULL=y
 # CONFIG_LCD is not set
 # CONFIG_MMCSD is not set
 # CONFIG_MTD is not set
+# CONFIG_EEPROM is not set
 # CONFIG_PIPES is not set
 # CONFIG_PM is not set
 # CONFIG_POWER is not set
@@ -298,6 +334,7 @@ CONFIG_SERIAL=y
 # CONFIG_ARCH_HAVE_USART6 is not set
 # CONFIG_ARCH_HAVE_USART7 is not set
 # CONFIG_ARCH_HAVE_USART8 is not set
+# CONFIG_ARCH_HAVE_OTHER_UART is not set
 
 #
 # USART Configuration
@@ -306,6 +343,7 @@ CONFIG_SERIAL=y
 # CONFIG_STANDARD_SERIAL is not set
 # CONFIG_SERIAL_IFLOWCONTROL is not set
 # CONFIG_SERIAL_OFLOWCONTROL is not set
+# CONFIG_ARCH_HAVE_SERIAL_TERMIOS is not set
 # CONFIG_USBDEV is not set
 # CONFIG_USBHOST is not set
 # CONFIG_WIRELESS is not set
@@ -317,7 +355,13 @@ CONFIG_SERIAL=y
 #
 # System Logging
 #
-# CONFIG_RAMLOG is not set
+CONFIG_RAMLOG=y
+CONFIG_RAMLOG_SYSLOG=y
+# CONFIG_RAMLOG_CONSOLE is not set
+CONFIG_RAMLOG_BUFSIZE=65536
+# CONFIG_RAMLOG_CRLF is not set
+CONFIG_RAMLOG_NONBLOCKING=y
+# CONFIG_SYSLOG_CONSOLE is not set
 
 #
 # Networking Support
@@ -361,8 +405,9 @@ CONFIG_FS_BINFS=y
 #
 # System Logging
 #
-
-# CONFIG_SYSLOG is not set
+CONFIG_SYSLOG=y
+CONFIG_SYSLOG_TIMESTAMP=y
+# CONFIG_SYSLOG_CHAR is not set
 
 #
 # Graphics Support
@@ -383,7 +428,7 @@ CONFIG_MM_REGIONS=1
 # CONFIG_AUDIO is not set
 
 #
-# Binary Formats
+# Binary Loader
 #
 # CONFIG_BINFMT_DISABLE is not set
 CONFIG_BINFMT_EXEPATH=y
@@ -408,6 +453,7 @@ CONFIG_LIB_HOMEDIR="/"
 # CONFIG_LIBM is not set
 # CONFIG_NOPRINTF_FIELDWIDTH is not set
 # CONFIG_LIBC_FLOATINGPOINT is not set
+# CONFIG_LIBC_IOCTL_VARIADIC is not set
 CONFIG_LIB_RAND_ORDER=1
 # CONFIG_EOL_IS_CR is not set
 # CONFIG_EOL_IS_LF is not set
@@ -421,8 +467,11 @@ CONFIG_POSIX_SPAWN_PROXY_STACKSIZE=1024
 CONFIG_TASK_SPAWN_DEFAULT_STACKSIZE=2048
 # CONFIG_LIBC_STRERROR is not set
 # CONFIG_LIBC_PERROR_STDOUT is not set
+CONFIG_LIBC_TMPDIR="/tmp"
+CONFIG_LIBC_MAX_TMPFILE=32
 CONFIG_ARCH_LOWPUTC=y
 # CONFIG_LIBC_LOCALTIME is not set
+# CONFIG_TIME_EXTENDED is not set
 CONFIG_LIB_SENDFILE_BUFSIZE=512
 # CONFIG_ARCH_ROMGETC is not set
 # CONFIG_ARCH_OPTIMIZED_FUNCTIONS is not set
@@ -430,7 +479,6 @@ CONFIG_LIB_SENDFILE_BUFSIZE=512
 #
 # Non-standard Library Support
 #
-# CONFIG_SCHED_WORKQUEUE is not set
 # CONFIG_LIB_KBDCODEC is not set
 # CONFIG_LIB_SLCDCODEC is not set
 
@@ -482,6 +530,7 @@ CONFIG_EXAMPLES_NSH=y
 # CONFIG_EXAMPLES_NXTEXT is not set
 # CONFIG_EXAMPLES_OSTEST is not set
 # CONFIG_EXAMPLES_PIPE is not set
+# CONFIG_EXAMPLES_PPPD is not set
 # CONFIG_EXAMPLES_POSIXSPAWN is not set
 # CONFIG_EXAMPLES_QENCODER is not set
 # CONFIG_EXAMPLES_RGMP is not set
@@ -498,7 +547,6 @@ CONFIG_EXAMPLES_NSH=y
 # CONFIG_EXAMPLES_THTTPD is not set
 # CONFIG_EXAMPLES_TIFF is not set
 # CONFIG_EXAMPLES_TOUCHSCREEN is not set
-# CONFIG_EXAMPLES_UDP is not set
 # CONFIG_EXAMPLES_WEBSERVER is not set
 # CONFIG_EXAMPLES_USBSERIAL is not set
 # CONFIG_EXAMPLES_USBTERM is not set
@@ -508,12 +556,15 @@ CONFIG_EXAMPLES_NSH=y
 # Graphics Support
 #
 # CONFIG_TIFF is not set
+# CONFIG_GRAPHICS_TRAVELER is not set
 
 #
 # Interpreters
 #
+# CONFIG_INTERPRETERS_BAS is not set
 # CONFIG_INTERPRETERS_FICL is not set
 # CONFIG_INTERPRETERS_PCODE is not set
+# CONFIG_INTERPRETERS_MICROPYTHON is not set
 
 #
 # Network Utilities
@@ -523,15 +574,11 @@ CONFIG_EXAMPLES_NSH=y
 # Networking Utilities
 #
 # CONFIG_NETUTILS_CODECS is not set
-# CONFIG_NETUTILS_DHCPD is not set
 # CONFIG_NETUTILS_FTPC is not set
-# CONFIG_NETUTILS_FTPD is not set
 # CONFIG_NETUTILS_JSON is not set
 # CONFIG_NETUTILS_SMTP is not set
-# CONFIG_NETUTILS_TFTPC is not set
 # CONFIG_NETUTILS_THTTPD is not set
-# CONFIG_NETUTILS_NETLIB is not set
-# CONFIG_NETUTILS_WEBCLIENT is not set
+# CONFIG_NETUTILS_PPPD is not set
 
 #
 # FreeModBus
@@ -551,7 +598,6 @@ CONFIG_NSH_READLINE=y
 CONFIG_NSH_LINELEN=80
 # CONFIG_NSH_DISABLE_SEMICOLON is not set
 CONFIG_NSH_CMDPARMS=y
-CONFIG_NSH_TMPDIR="/tmp"
 CONFIG_NSH_MAXARGUMENTS=6
 CONFIG_NSH_ARGCAT=y
 CONFIG_NSH_NESTDEPTH=3
@@ -567,6 +613,7 @@ CONFIG_NSH_FILE_APPS=y
 # CONFIG_NSH_DISABLE_CD is not set
 # CONFIG_NSH_DISABLE_CP is not set
 # CONFIG_NSH_DISABLE_CMP is not set
+# CONFIG_NSH_DISABLE_DATE is not set
 # CONFIG_NSH_DISABLE_DD is not set
 # CONFIG_NSH_DISABLE_DF is not set
 # CONFIG_NSH_DISABLE_DELROUTE is not set
@@ -588,6 +635,7 @@ CONFIG_NSH_FILE_APPS=y
 # CONFIG_NSH_DISABLE_MKRD is not set
 # CONFIG_NSH_DISABLE_MH is not set
 # CONFIG_NSH_DISABLE_MOUNT is not set
+# CONFIG_NSH_DISABLE_MV is not set
 # CONFIG_NSH_DISABLE_MW is not set
 # CONFIG_NSH_DISABLE_PS is not set
 # CONFIG_NSH_DISABLE_PUT is not set
@@ -607,7 +655,7 @@ CONFIG_NSH_FILE_APPS=y
 #
 # Configure Command Options
 #
-# CONFIG_NSH_CMDOPT_DF_H is not set
+CONFIG_NSH_CMDOPT_DF_H=y
 CONFIG_NSH_CODECS_BUFSIZE=128
 # CONFIG_NSH_CMDOPT_HEXDUMP is not set
 CONFIG_NSH_FILEIOSIZE=1024
@@ -651,115 +699,20 @@ CONFIG_NSH_CONSOLE=y
 #
 # System Libraries and NSH Add-Ons
 #
-
-#
-# Custom Free Memory Command
-#
 # CONFIG_SYSTEM_FREE is not set
-
-#
-# EMACS-like Command Line Editor
-#
 # CONFIG_SYSTEM_CLE is not set
-
-#
-# FLASH Program Installation
-#
+# CONFIG_SYSTEM_CUTERM is not set
 # CONFIG_SYSTEM_INSTALL is not set
-
-#
-# FLASH Erase-all Command
-#
-
-#
-# Intel HEX to binary conversion
-#
 # CONFIG_SYSTEM_HEX2BIN is not set
-
-#
-# I2C tool
-#
-
-#
-# INI File Parser
-#
 # CONFIG_SYSTEM_INIFILE is not set
-
-#
-# NxPlayer media player library / command Line
-#
-# CONFIG_SYSTEM_NXPLAYER is not set
-
-#
-# RAM test
-#
 # CONFIG_SYSTEM_RAMTEST is not set
-
-#
-# readline()
-#
 CONFIG_SYSTEM_READLINE=y
 CONFIG_READLINE_ECHO=y
-
-#
-# P-Code Support
-#
-
-#
-# PHY Tool
-#
-
-#
-# Power Off
-#
 # CONFIG_SYSTEM_POWEROFF is not set
-
-#
-# RAMTRON
-#
 # CONFIG_SYSTEM_RAMTRON is not set
-
-#
-# SD Card
-#
 # CONFIG_SYSTEM_SDCARD is not set
-
-#
-# Sudoku
-#
 # CONFIG_SYSTEM_SUDOKU is not set
-
-#
-# Sysinfo
-#
-# CONFIG_SYSTEM_SYSINFO is not set
-
-#
-# VI Work-Alike Editor
-#
+CONFIG_SYSTEM_SYSINFO=y
+CONFIG_SYSTEM_SYSINFO_STACKSIZE=1024
 # CONFIG_SYSTEM_VI is not set
-
-#
-# Stack Monitor
-#
-
-#
-# USB CDC/ACM Device Commands
-#
-
-#
-# USB Composite Device Commands
-#
-
-#
-# USB Mass Storage Device Commands
-#
-
-#
-# USB Monitor
-#
-
-#
-# Zmodem Commands
-#
 # CONFIG_SYSTEM_ZMODEM is not set
