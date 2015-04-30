@@ -121,7 +121,7 @@
  */
 
 #if defined(CONFIG_STM32_MII_MCO) || defined(CONFIG_STM32_RMII_MCO)
-#  define BOARD_CFGR_MCO_SOURCE RCC_CFGR_PLL3CLK      /* Source: PLL3 */
+#  define BOARD_CFGR_MCO_SOURCE RCC_CFGR_EXTCLK       /* Source: HSE */
 #  define STM32_PLL_PLL3MUL     RCC_CFGR2_PLL3MULx10  /* MCO 5MHz * 10 = 50MHz */
 #endif
 
