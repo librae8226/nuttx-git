@@ -124,7 +124,7 @@ static inline int vsyslog_internal(FAR const char *fmt, va_list ap)
   if (ret == OK)
     {
       (void)lib_sprintf((FAR struct lib_outstream_s *)&stream,
-                        "[%6d.%06d]",
+                        "[%6d.%06d] ",
                          ts.tv_sec, ts.tv_nsec/1000);
     }
 #endif
@@ -144,7 +144,7 @@ static inline int vsyslog_internal(FAR const char *fmt, va_list ap)
   if (ret == OK)
     {
       (void)lib_sprintf((FAR struct lib_outstream_s *)&stream,
-                        "[%6d.%06d]",
+                        "[%6d.%06d] ",
                          ts.tv_sec, ts.tv_nsec/1000);
     }
 #endif
@@ -164,7 +164,7 @@ static inline int vsyslog_internal(FAR const char *fmt, va_list ap)
   if (ret == OK)
     {
       (void)lib_sprintf((FAR struct lib_outstream_s *)&stream,
-                        "[%6d.%06d]",
+                        "[%6d.%06d] ",
                          ts.tv_sec, ts.tv_nsec/1000);
     }
 #endif
