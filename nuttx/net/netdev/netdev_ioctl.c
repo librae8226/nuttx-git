@@ -360,7 +360,7 @@ static int netdev_ifrioctl(FAR struct socket *psock, int cmd,
   FAR struct net_driver_s *dev;
   int ret = -EINVAL;
 
-  nvdbg("cmd: %d\n", cmd);
+  nvdbg("cmd: 0x%x\n", cmd);
 
   /* Execute the command */
 
