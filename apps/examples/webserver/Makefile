@@ -37,6 +37,12 @@
 -include $(TOPDIR)/Make.defs
 include $(APPDIR)/Make.defs
 
+# ROMFS built-in application info
+
+APPNAME = webserver
+PRIORITY = SCHED_PRIORITY_DEFAULT
+STACKSIZE = 8192
+
 # uIP very tiny web server example
 
 ASRCS =
@@ -108,7 +114,14 @@ install:
 
 endif
 
+ifeq ($(CONFIG_NSH_BUILTIN_APPS),y)
+$(BUILTIN_REGISTRY)$(DELIM)$(APPNAME)_main.bdat: $(DEPCONFIG) Makefile
+	$(call REGISTER,$(APPNAME),$(PRIORITY),$(STACKSIZE),$(APPNAME)_main)
+
+context: $(BUILTIN_REGISTRY)$(DELIM)$(APPNAME)_main.bdat
+else
 context:
+endif
 
 .depend: Makefile $(SRCS)
 	@$(MKDEP) $(ROOTDEPPATH) "$(CC)" -- $(CFLAGS) -- $(SRCS) >Make.dep
