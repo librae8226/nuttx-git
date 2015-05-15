@@ -1,0 +1,7 @@
+mount -t procfs /proc
+echo "rcS: Mounted /proc"
+
+#mkrd -m 2 -s 512 8
+#mkfatfs /dev/ram2
+#mount -t vfat /dev/ram2 /tmp
+#echo "rcS: Mounted /tmp"

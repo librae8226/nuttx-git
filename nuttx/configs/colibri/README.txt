@@ -13,6 +13,52 @@ README
 Contents
 ========
 
+  o Init Scripts
+  o User and Wake-Up keys
+  o LEDs
+  o Serial Console
+    - Console Configuration
+    - J5 - USART1
+    - PL-2013 USB-to-Serial Interface
+    - RS-232 Module
+  o USB Interface
+  o microSD Card Interface
+  o ViewTool DP83848 Ethernet Module
+  o Freescale MPL115A barometer sensor
+  o LCD/Touchscreen Interface
+  o Toolchains
+    - NOTE about Windows native toolchains
+  o Configurations
+    - Information Common to All Configurations
+    - Configuration Sub-directories
+
+Init Scripts
+============
+
+  Default Init Scripts
+  --------------------
+
+  Refer to apps/nshlib/README.txt.
+
+  Customize the Init Scripts
+  --------------------------
+
+  1. Make sure CONFIG_NSH_ARCHROMFS=y, then add rcS.template in nuttx/.
+
+  2. cd nuttx/, generate romfs img.
+
+    ./tools/mkromfsimg.sh .
+
+  3. Then we can get the img: nsh_romfsimg.h
+
+  4. Copy the img file to arch specific config path.
+
+    cp nsh_romfsimg.h configs/<board>/include/
+
+  5. Rebuild nuttx.
+
+    make clean && make
+
 User and Wake-Up keys
 =====================
 
