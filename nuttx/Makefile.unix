@@ -425,6 +425,8 @@ ifeq ($(CONFIG_RAW_BINARY),y)
 	$(Q) $(OBJCOPY) $(OBJCOPYARGS) -O binary $(BIN) $(BIN).bin
 	@echo "DUMP: $(BIN).lss"
 	$(Q) $(OBJDUMP) -d -x $(BIN) > $(BIN).lss
+	@echo "SIZE: $(BIN).sizes"
+	$(Q) -find .. -iname \*.o | xargs $(CROSSDEV)size -t 2>&1 | sort -k1,1n > $(BIN).sizes
 endif
 ifeq ($(CONFIG_UBOOT_UIMAGE),y)
 	@echo "MKIMAGE: uImage"
