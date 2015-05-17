@@ -1350,4 +1350,24 @@ config NSH_TELNET_FAILCOUNT
 endif # NSH_TELNET_LOGIN
 endif # NSH_TELNET
 endmenu # Telnet Configuration
+
+menu "Recovery Mode"
+
+config NSH_RECOVERY
+	bool "Support recovery mode"
+	default n
+	---help---
+		NuttX acts as a recovery image.
+		It supports several recovery features such as boot, ota, etc.
+
+if NSH_RECOVERY
+
+config NSH_RECOVERY_BOOT
+	bool "Enable boot command"
+	default n
+	---help---
+		Boot from a specific address.
+
+endif # NSH_RECOVERY_BOOT
+endmenu # NSH_RECOVERY
 endif # NSH_LIBRARY

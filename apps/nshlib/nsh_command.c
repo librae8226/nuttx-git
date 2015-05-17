@@ -119,6 +119,10 @@ static const struct cmdmap_s g_cmdmap[] =
 #  endif
 #endif
 
+#ifdef CONFIG_NSH_RECOVERY_BOOT
+  { "boot",      cmd_boot,    2, 2, "<hex-address>" },
+#endif
+
 #if !defined(CONFIG_NSH_DISABLESCRIPT) && !defined(CONFIG_NSH_DISABLE_LOOPS)
   { "break",     cmd_break,   1, 1, NULL },
 #endif
