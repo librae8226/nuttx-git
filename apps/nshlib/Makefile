@@ -101,6 +101,10 @@ ifeq ($(CONFIG_NETUTILS_CODECS),y)
 CSRCS += nsh_codeccmd.c
 endif
 
+ifeq ($(CONFIG_NSH_RECOVERY),y)
+CSRCS += nsh_recoverycmds.c
+endif
+
 AOBJS = $(ASRCS:.S=$(OBJEXT))
 COBJS = $(CSRCS:.c=$(OBJEXT))
 
