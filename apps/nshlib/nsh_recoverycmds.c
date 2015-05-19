@@ -1,3 +1,4 @@
+
 /****************************************************************************
  * apps/nshlib/dbg_dbgcmds.c
  *
@@ -91,53 +92,61 @@
  * The check_code() and jump_to() should be arch specific.
  */
 
-static int check_code(uint32_t addr) {
-	uint32_t sp = *(volatile uint32_t *) addr;
+static int check_code(uint32_t addr)
+{
+  uint32_t sp = *(volatile uint32_t *)addr;
 
-	if ((sp & 0x2FFE0000) == 0x20000000) {
-		return 1;
-	} else {
-		return 0;
-	}
+  if ((sp & 0x2FFE0000) == 0x20000000)
+    {
+      return 1;
+    }
+  else
+    {
+      return 0;
+    }
 }
 
 static void __msr_msp(uint32_t p)
 {
-	__asm volatile("msr msp, r0\n" "bx r14\n");
+  __asm volatile ("msr msp, r0\n" "bx r14\n");
 }
 
-static void jump_to(uint32_t addr) {
-	typedef void (*funcptr)(void);
+static void jump_to(uint32_t addr)
+{
+  typedef void (*funcptr) (void);
 
-	uint32_t jump_addr = *(volatile uint32_t *)(addr + 0x04);
-	funcptr entry = (funcptr)jump_addr;
-	irqdisable();
-	__msr_msp(*(volatile uint32_t *)addr);
-	entry();
+  uint32_t jump_addr = *(volatile uint32_t *)(addr + 0x04);
+  funcptr entry = (funcptr) jump_addr;
+  irqdisable();
+  __msr_msp(*(volatile uint32_t *)addr);
+  entry();
 }
 
 int cmd_boot(FAR struct nsh_vtbl_s *vtbl, int argc, char **argv)
 {
-	FAR volatile uintptr_t addr;
-	FAR char *endptr;
+  FAR volatile uintptr_t addr;
+  FAR char *endptr;
 
-	addr = (uintptr_t)strtol(argv[1], &endptr, 16);
-	if (argv[0][0] == '\0' || *endptr != '\0')
-	{
-		return ERROR;
-	}
+  addr = (uintptr_t) strtol(argv[1], &endptr, 16);
+  if (argv[0][0] == '\0' || *endptr != '\0')
+    {
+      return ERROR;
+    }
 
-	if (check_code(addr)) {
-		nsh_output(vtbl, "%p: 0x%08x, code valid, jump in 1 sec...\n",
-				addr, *(volatile uintptr_t *)addr);
-		sleep(1);
-		jump_to(addr);
-	} else {
-		nsh_output(vtbl, "%p: 0x%08x, code invalid, hard reset...\n",
-				addr, *(volatile uintptr_t *)addr);
-		up_systemreset();
-	}
+  if (check_code(addr))
+    {
+      nsh_output(vtbl, "%p: 0x%08x, code valid, jump in 1 sec...\n",
+                 addr, *(volatile uintptr_t *)addr);
+      sleep(1);
+      jump_to(addr);
+    }
+  else
+    {
+      nsh_output(vtbl, "%p: 0x%08x, code invalid, hard reset...\n",
+                 addr, *(volatile uintptr_t *)addr);
+      up_systemreset();
+    }
 
-	return OK;
+  return OK;
 }
 #endif
