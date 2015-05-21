@@ -32,8 +32,8 @@ int coap_main(int argc, char *argv[])
 #else /* IPV6 */
     struct sockaddr_in servaddr, cliaddr;
 #endif /* IPV6 */
-    uint8_t buf[4096];
-    uint8_t scratch_raw[4096];
+    uint8_t buf[1024];
+    uint8_t scratch_raw[1024];
     coap_rw_buffer_t scratch_buf = {scratch_raw, sizeof(scratch_raw)};
 
     printf("Starting CoAP...\n");
