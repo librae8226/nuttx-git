@@ -1779,7 +1779,7 @@ static void stm32_receive(FAR struct stm32_ethmac_s *priv)
       else
 #endif
         {
-          nlldbg("DROPPED: Unknown type: %04x\n", BUF->type);
+          nllvdbg("DROPPED: Unknown type: %04x\n", BUF->type);
         }
 
       /* We are finished with the RX buffer.  NOTE:  If the buffer is
