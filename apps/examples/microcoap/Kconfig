@@ -1,0 +1,19 @@
+#
+# For a description of the syntax of this configuration file,
+# see misc/tools/kconfig-language.txt.
+#
+
+config EXAMPLES_MICROCOAP
+	bool "CoAP Example"
+	default n
+	---help---
+		A small CoAP implementation for microcontrollers.
+if EXAMPLES_MICROCOAP
+
+config EXAMPLES_MICROCOAP_DEBUG
+	bool "Enable CoAP Debug"
+	default n
+	---help---
+		This enables the debug log of CoAP example.
+
+endif
