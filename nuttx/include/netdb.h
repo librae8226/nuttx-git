@@ -213,7 +213,7 @@ struct addrinfo
 
   FAR struct sockaddr *ai_addr;      /* Socket address of socket.  */
   FAR char            *ai_canonname; /* Canonical name of service location.  */
-  sFAR truct addrinfo *ai_next;      /* Pointer to next in list.  */
+  FAR struct addrinfo *ai_next;      /* Pointer to next in list.  */
 };
 
 /****************************************************************************
