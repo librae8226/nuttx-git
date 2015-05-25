@@ -14,7 +14,7 @@
  *    Allan Stockdill-Mander - initial API and implementation and/or initial documentation
  *******************************************************************************/
 
-#include "MQTTLinux.h"
+#include <apps/netutils/MQTTLinux.h>
 
 char expired(Timer* timer)
 {

@@ -58,6 +58,10 @@ ifeq ($(CONFIG_NETUTILS_JSON),y)
 CONFIGURED_APPS += netutils/json
 endif
 
+ifeq ($(CONFIG_NETUTILS_MQTT),y)
+CONFIGURED_APPS += netutils/mqtt
+endif
+
 ifeq ($(CONFIG_NETUTILS_NTPCLIENT),y)
 CONFIGURED_APPS += netutils/ntpclient
 endif

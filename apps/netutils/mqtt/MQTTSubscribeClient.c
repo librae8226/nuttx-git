@@ -14,8 +14,8 @@
  *    Ian Craggs - initial API and implementation and/or initial documentation
  *******************************************************************************/
 
-#include "MQTTPacket.h"
-#include "StackTrace.h"
+#include <apps/netutils/MQTTPacket.h>
+#include <apps/netutils/StackTrace.h>
 
 #include <string.h>
 
