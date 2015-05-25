@@ -40,15 +40,25 @@
     stdoutsub topic/of/interest --host iot.eclipse.org
 
 */
-#include <stdio.h>
-#include "MQTTClient.h"
+#include <nuttx/config.h>
 
-#include <stdio.h>
-#include <signal.h>
-#include <memory.h>
-
+#include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <sys/time.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <string.h>
+#include <unistd.h>
+#include <time.h>
+#include <debug.h>
+//#include <signal.h>
+#include <string.h>
 
+#include <apps/netutils/MQTTClient.h>
 
 volatile int toStop = 0;
 
@@ -71,7 +81,7 @@ void usage()
 
 void cfinish(int sig)
 {
-	signal(SIGINT, NULL);
+//	signal(SIGINT, NULL);
 	toStop = 1;
 }
 
@@ -190,8 +200,11 @@ void messageArrived(MessageData* md)
 	//fflush(stdout);
 }
 
-
-int main(int argc, char** argv)
+#ifdef CONFIG_BUILD_KERNEL
+int main(int argc, FAR char *argv[])
+#else
+int mqttclient_main(int argc, char *argv[])
+#endif
 {
 	int rc = 0;
 	unsigned char buf[100];
@@ -212,8 +225,8 @@ int main(int argc, char** argv)
 	Network n;
 	Client c;
 
-	signal(SIGINT, cfinish);
-	signal(SIGTERM, cfinish);
+//	signal(SIGINT, cfinish);
+//	signal(SIGTERM, cfinish);
 
 	NewNetwork(&n);
 	ConnectNetwork(&n, opts.host, opts.port);

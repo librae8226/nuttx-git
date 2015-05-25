@@ -1,0 +1,16 @@
+#
+# For a description of the syntax of this configuration file,
+# see misc/tools/kconfig-language.txt.
+#
+
+config NETUTILS_MQTT
+	bool "MQTT"
+	default n
+	depends on NET_TCP
+	---help---
+		Enable support for the MQTT protocol.
+		  - OASIS Message Queuing Telemetry Transport (MQTT)
+
+if NETUTILS_MQTT
+
+endif

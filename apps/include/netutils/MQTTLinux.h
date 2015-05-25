@@ -23,7 +23,7 @@
 #include <sys/time.h>
 #include <sys/select.h>
 #include <netinet/in.h>
-#include <netinet/tcp.h>
+#include <nuttx/net/tcp.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <stdio.h>
