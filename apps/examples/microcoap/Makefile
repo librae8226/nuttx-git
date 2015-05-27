@@ -42,7 +42,7 @@ include $(APPDIR)/Make.defs
 
 APPNAME = coap
 PRIORITY = SCHED_PRIORITY_DEFAULT
-STACKSIZE = 8192
+STACKSIZE = 4096
 
 # CoAP example
 

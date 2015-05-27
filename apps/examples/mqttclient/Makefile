@@ -42,7 +42,7 @@ include $(APPDIR)/Make.defs
 
 APPNAME = mqttclient
 PRIORITY = SCHED_PRIORITY_DEFAULT
-STACKSIZE = 8192
+STACKSIZE = 4096
 
 # uIP very tiny web server example
 
