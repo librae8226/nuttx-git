@@ -290,6 +290,7 @@ int sigqueue(int pid, int signo, union sigval value);
 #else
 int sigqueue(int pid, int signo, FAR void *sival_ptr);
 #endif
+_sa_handler_t signal(int signo, _sa_handler_t handler);
 
 #undef EXTERN
 #ifdef __cplusplus
