@@ -193,9 +193,9 @@ void printstrbylen(char *msg, char *str, int len)
 {
   int i;
   DEBUGASSERT(str != NULL);
-  printf("%s\n\t", msg);
+  printf("%s (len: %d)\n\t", msg, len);
   for (i = 0; i < len; i++)
-    printf("%c ", str[i]);
+    printf("%c", str[i]);
   printf("\n\t");
   for (i = 0; i < len; i++)
     printf("%02x ", str[i]);
@@ -205,14 +205,10 @@ void printstrbylen(char *msg, char *str, int len)
 void messageArrived(MessageData * md)
 {
   MQTTMessage *message = md->message;
-
   if (opts.showtopics)
     printstrbylen("topic:", md->topicName->lenstring.data,
                   md->topicName->lenstring.len);
-
-  printstrbylen("payload: ", (char *)message->payload, message->payloadlen);
-  if (!opts.nodelimiter)
-    printf("%s\n", opts.delimiter);
+  printstrbylen("payload:", (char *)message->payload, message->payloadlen);
 }
 
 #ifdef CONFIG_BUILD_KERNEL
