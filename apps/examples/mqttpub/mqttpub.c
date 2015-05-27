@@ -175,21 +175,18 @@ int mqttpub_main(int argc, char *argv[])
 {
   Network n;
   Client c;
-  MQTTMessage message;
+  MQTTMessage msg;
   MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
   char *topic = NULL;
   char buf[100];
+  char msgbuf[100];
+  char readbuf[100];
   int rc = 0;
-  char url[100];
 
   if (argc < 2)
     mqttpub_usage();
 
   mqttpub_getopts(argc, argv);
-
-  sprintf(url, "%s:%s", g_opts.host, g_opts.port);
-  if (g_opts.verbose)
-    printf("URL is %s\n", url);
 
   topic = argv[1];
   printf("Using topic %s\n", topic);
@@ -201,7 +198,7 @@ int mqttpub_main(int argc, char *argv[])
       return -EFAULT;
     }
 
-  MQTTClient(&c, &n, 1000, (unsigned char *)buf, 100, NULL, 0);
+  MQTTClient(&c, &n, 1000, (unsigned char *)buf, 100, readbuf, 100);
 
   data.MQTTVersion = 3;
   data.clientID.cstring = g_opts.clientid;
@@ -209,14 +206,14 @@ int mqttpub_main(int argc, char *argv[])
   rc = MQTTConnect(&c, &data);
   printf("Connected %d\n", rc);
 
-  sprintf(buf, "Hello World!  QoS 0 message\n");
-  message.qos = QOS0;
-  message.retained = false;
-  message.dup = false;
-  message.payload = (void *)buf;
-  message.payloadlen = strlen(buf) + 1;
+  sprintf(msgbuf, "Hello World!  QoS 0 message\n");
+  msg.qos = QOS0;
+  msg.retained = false;
+  msg.dup = false;
+  msg.payload = (void *)msgbuf;
+  msg.payloadlen = strlen(msgbuf) + 1;
 
-  rc = MQTTPublish(&c, topic, &message);
+  rc = MQTTPublish(&c, topic, &msg);
   if (rc != 0)
     printf("Error publish, rc: %d\n", rc);
   if (g_opts.qos > 0)
