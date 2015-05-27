@@ -203,13 +203,8 @@ int mqttpub_main(int argc, char *argv[])
 
   MQTTClient(&c, &n, 1000, (unsigned char *)buf, 100, NULL, 0);
 
-  data.willFlag = 0;
   data.MQTTVersion = 3;
   data.clientID.cstring = g_opts.clientid;
-  data.username.cstring = g_opts.username;
-  data.password.cstring = g_opts.password;
-  data.keepAliveInterval = 10;
-  data.cleansession = 1;
 
   rc = MQTTConnect(&c, &data);
   printf("Connected %d\n", rc);
@@ -229,7 +224,6 @@ int mqttpub_main(int argc, char *argv[])
 
   printf("Stopping\n");
 
-  free(buf);
   MQTTDisconnect(&c);
   n.disconnect(&n);
 
