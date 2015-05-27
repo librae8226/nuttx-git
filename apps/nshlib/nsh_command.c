@@ -349,6 +349,10 @@ static const struct cmdmap_s g_cmdmap[] =
 # endif
 #endif
 
+#ifdef CONFIG_NSH_RECOVERY_REBOOT
+  { "reboot",      cmd_reboot,    1, 1, NULL },
+#endif
+
 #ifdef NSH_HAVE_DIROPTS
 # ifndef CONFIG_NSH_DISABLE_RM
   { "rm",       cmd_rm,       2, 2, "<file-path>" },

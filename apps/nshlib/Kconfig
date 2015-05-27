@@ -1368,6 +1368,12 @@ config NSH_RECOVERY_BOOT
 	---help---
 		Boot from a specific address.
 
-endif # NSH_RECOVERY_BOOT
+config NSH_RECOVERY_REBOOT
+	bool "Enable reboot command"
+	default n
+	---help---
+		Reboot the whole system
+
+endif # NSH_RECOVERY
 endmenu # NSH_RECOVERY
 endif # NSH_LIBRARY

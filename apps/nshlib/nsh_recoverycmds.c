@@ -84,7 +84,7 @@
  * Name: cmd_boot, boot from specific address in recovery mode
  ****************************************************************************/
 
-#ifdef CONFIG_NSH_RECOVERY_BOOT
+#ifdef CONFIG_NSH_RECOVERY
 
 /*
  * FIXME
@@ -116,6 +116,7 @@ static void jump_to(uint32_t addr) {
 	entry();
 }
 
+#ifdef CONFIG_NSH_RECOVERY_BOOT
 int cmd_boot(FAR struct nsh_vtbl_s *vtbl, int argc, char **argv)
 {
 	FAR volatile uintptr_t addr;
@@ -141,3 +142,12 @@ int cmd_boot(FAR struct nsh_vtbl_s *vtbl, int argc, char **argv)
 	return OK;
 }
 #endif
+
+#ifdef CONFIG_NSH_RECOVERY_REBOOT
+int cmd_reboot(FAR struct nsh_vtbl_s *vtbl, int argc, char **argv)
+{
+	up_systemreset();
+	while(1);
+}
+#endif
+#endif /* CONFIG_NSH_RECOVERY */
