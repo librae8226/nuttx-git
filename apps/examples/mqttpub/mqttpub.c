@@ -64,6 +64,7 @@ void mqttpub_usage(void)
   printf("  --host <hostname> (default is localhost)\n");
   printf("  --port <port> (default is 1883)\n");
   printf("  --qos <qos> (default is 0)\n");
+  printf("  --msg <message> (if not provided, use default string)\n");
   printf("  --retained (default is off)\n");
   printf("  --delimiter <delim> (default is \\n)");
   printf("  --clientid <clientid> (default is hostname+timestamp)");
@@ -84,9 +85,10 @@ struct
     char *host;
     int port;
     int verbose;
+    char *msg;
   } g_opts =
 {
-"mqtt-publisher", "\n", 100, 0, 0, NULL, NULL, "localhost", 1883, 0};
+"mqtt-publisher", "\n", 100, 0, 0, NULL, NULL, "localhost", 1883, 0, NULL};
 
 void mqttpub_getopts(int argc, char **argv)
 {
@@ -125,6 +127,13 @@ void mqttpub_getopts(int argc, char **argv)
         {
           if (++count < argc)
             g_opts.port = atoi(argv[count]);
+          else
+            mqttpub_usage();
+        }
+      else if (strcmp(argv[count], "--msg") == 0)
+        {
+          if (++count < argc)
+            g_opts.msg = argv[count];
           else
             mqttpub_usage();
         }
@@ -198,7 +207,7 @@ int mqttpub_main(int argc, char *argv[])
       return -EFAULT;
     }
 
-  MQTTClient(&c, &n, 1000, (unsigned char *)buf, 100, readbuf, 100);
+  MQTTClient(&c, &n, 1000, (unsigned char *)buf, 100, (unsigned char *)readbuf, 100);
 
   data.MQTTVersion = 3;
   data.clientID.cstring = g_opts.clientid;
@@ -206,10 +215,13 @@ int mqttpub_main(int argc, char *argv[])
   rc = MQTTConnect(&c, &data);
   printf("Connected %d\n", rc);
 
-  sprintf(msgbuf, "Hello World!  QoS 0 message\n");
-  msg.qos = QOS0;
+  msg.qos = g_opts.qos;
   msg.retained = false;
   msg.dup = false;
+  if (g_opts.msg == NULL)
+    sprintf(msgbuf, "Hello! QoS%d message", msg.qos);
+  else
+    strcpy(msgbuf, g_opts.msg);
   msg.payload = (void *)msgbuf;
   msg.payloadlen = strlen(msgbuf) + 1;
 
