@@ -102,7 +102,7 @@ struct opts_struct
     int showtopics;
   } opts =
 {
-(char *)"stdout-subscriber", 0, (char *)"\n", QOS2, NULL, NULL,
+(char *)"mqtt-subscriber", 0, (char *)"\n", QOS2, NULL, NULL,
     (char *)"localhost", 1883, 0};
 
 void getopts(int argc, char **argv)
