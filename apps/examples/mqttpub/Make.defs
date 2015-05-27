@@ -1,5 +1,5 @@
 ############################################################################
-# apps/examples/mqttclient/Make.defs
+# apps/examples/mqttpub/Make.defs
 # Adds selected applications to apps/ build
 #
 #   Copyright (C) 2015 Gregory Nutt. All rights reserved.
@@ -35,6 +35,6 @@
 #
 ############################################################################
 
-ifeq ($(CONFIG_EXAMPLES_MQTTCLIENT),y)
-CONFIGURED_APPS += examples/mqttclient
+ifeq ($(CONFIG_EXAMPLES_MQTTPUB),y)
+CONFIGURED_APPS += examples/mqttpub
 endif

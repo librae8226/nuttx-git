@@ -5,10 +5,10 @@
 
 if NETUTILS_MQTT
 
-config EXAMPLES_MQTTCLIENT
-	bool "MQTT Client Example"
+config EXAMPLES_MQTTPUB
+	bool "MQTT Client Publisher Example"
 	default n
 	---help---
-		Enable the MQTT client example
+		Enable the MQTT client publisher example
 
 endif

@@ -1,5 +1,5 @@
 ############################################################################
-# apps/examples/mqttclient/Makefile
+# apps/examples/mqttsub/Makefile
 #
 #   Copyright (C) 2015 Gregory Nutt. All rights reserved.
 #   Author: Gregory Nutt <gnutt@nuttx.org>
@@ -40,7 +40,7 @@ include $(APPDIR)/Make.defs
 
 # ROMFS built-in application info
 
-APPNAME = mqttclient
+APPNAME = mqttsub
 PRIORITY = SCHED_PRIORITY_DEFAULT
 STACKSIZE = 4096
 
@@ -48,7 +48,7 @@ STACKSIZE = 4096
 
 ASRCS =
 CSRCS =
-MAINSRC = stdoutsub.c
+MAINSRC = mqttsub.c
 
 AOBJS = $(ASRCS:.S=$(OBJEXT))
 COBJS = $(CSRCS:.c=$(OBJEXT))

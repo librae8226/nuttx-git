@@ -1,4 +1,3 @@
-
 /*******************************************************************************
  * Copyright (c) 2012, 2013 IBM Corp.
  *
@@ -19,7 +18,7 @@
 
 /*
 
-   stdout subscriber
+   mqtt subscriber
 
    compulsory parameters:
 
@@ -69,8 +68,8 @@ volatile int toStop = 0;
 
 void usage(void)
 {
-  printf("MQTT stdout subscriber\n");
-  printf("Usage: stdoutsub topicname <options>, where options are:\n");
+  printf("MQTT subscriber\n");
+  printf("Usage: mqttsub topicname <options>, where options are:\n");
   printf("  --host <hostname> (default is localhost)\n");
   printf("  --port <port> (default is 1883)\n");
   printf("  --qos <qos> (default is 2)\n");
@@ -214,7 +213,7 @@ void messageArrived(MessageData * md)
 #ifdef CONFIG_BUILD_KERNEL
 int main(int argc, FAR char *argv[])
 #else
-int mqttclient_main(int argc, char *argv[])
+int mqttsub_main(int argc, char *argv[])
 #endif
 {
   int rc = 0;
