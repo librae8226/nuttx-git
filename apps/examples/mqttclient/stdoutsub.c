@@ -56,10 +56,14 @@
 #include <unistd.h>
 #include <time.h>
 #include <debug.h>
-//#include <signal.h>
+#include <signal.h>
 #include <string.h>
 
 #include <apps/netutils/MQTTClient.h>
+
+#define SIGINT	2
+#define SIGKILL	9
+#define SIGTERM	15
 
 volatile int toStop = 0;
 
@@ -81,7 +85,8 @@ void usage(void)
 
 void cfinish(int sig)
 {
-  // signal(SIGINT, NULL);
+  printf("sig: %d\n", sig);
+  signal(SIGINT, NULL);
   toStop = 1;
 }
 
@@ -219,6 +224,7 @@ int mqttclient_main(int argc, char *argv[])
   int rc = 0;
   unsigned char buf[100];
   unsigned char readbuf[100];
+  struct sigaction act;
 
   if (argc < 2)
     usage();
@@ -235,8 +241,8 @@ int mqttclient_main(int argc, char *argv[])
   Network n;
   Client c;
 
-//      signal(SIGINT, cfinish);
-//      signal(SIGTERM, cfinish);
+  signal(SIGINT, cfinish);
+  signal(SIGTERM, cfinish);
 
   NewNetwork(&n);
   if (ConnectNetwork(&n, opts.host, opts.port) != OK)
