@@ -47,8 +47,7 @@ int left_ms(Timer * timer)
   struct timeval now, res;
   gettimeofday(&now, NULL);
   timersub(&timer->end_time, &now, &res);
-  // printf("left %d ms\n", (res.tv_sec < 0) ? 0 : res.tv_sec * 1000 +
-  // res.tv_usec / 1000);
+  nvdbg("left %d ms\n", (res.tv_sec < 0) ? 0 : res.tv_sec * 1000 + res.tv_usec / 1000);
   return (res.tv_sec < 0) ? 0 : res.tv_sec * 1000 + res.tv_usec / 1000;
 }
 
@@ -62,14 +61,23 @@ void InitTimer(Timer * timer)
 int linux_read(Network * n, unsigned char *buffer, int len, int timeout_ms)
 {
   struct timeval interval = { timeout_ms / 1000, (timeout_ms % 1000) * 1000 };
-  if (interval.tv_sec < 0 || (interval.tv_sec == 0 && interval.tv_usec <= 0))
+  /*
+   * FIXME
+   * Force the tv_usec to be < 100ms, need to find the root cause...
+   */
+  if (interval.tv_sec < 0 || (interval.tv_sec == 0 && interval.tv_usec < 100000L))
     {
       interval.tv_sec = 0;
-      interval.tv_usec = 100;
+      interval.tv_usec = 100000L;
     }
 
-  setsockopt(n->my_socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&interval,
-             sizeof(struct timeval));
+  int r;
+  r = setsockopt(n->my_socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&interval,
+                 sizeof(struct timeval));
+  if (r < 0)
+    {
+      ndbg("ERROR: setsockopt failed, r: %d\n", r);
+    }
 
   int bytes = 0;
   while (bytes < len)
@@ -123,11 +131,9 @@ int ConnectNetwork(Network * n, char *addr, int port)
   struct timeval tv;
   int ret;
 
-  nlldbg("in\n");
-
   if (!n)
     {
-      nlldbg("ERROR: no entity.\n");
+      ndbg("ERROR: no entity.\n");
       return -EINVAL;
     }
 
@@ -156,13 +162,13 @@ int ConnectNetwork(Network * n, char *addr, int port)
     {
       /* Could not resolve host (or malformed IP address) */
 
-      ndbg("ERROR: Failed to resolve hostname\n");
+      ndbg("ERROR: Failed to resolve hostname, ret: %d\n", ret);
       ret = -EHOSTUNREACH;
       goto errout;
     }
 
   /* Connect to server.  First we have to set some fields in the 'server'
-   * address structure.  The system will assign me an arbitrary local port that 
+   * address structure.  The system will assign me an arbitrary local port that
    * is not in use. */
   ret =
     connect(n->my_socket, (struct sockaddr *)&server,
@@ -173,7 +179,6 @@ int ConnectNetwork(Network * n, char *addr, int port)
       goto errout;
     }
 
-  nlldbg("out\n");
   return OK;
 
 errout:
