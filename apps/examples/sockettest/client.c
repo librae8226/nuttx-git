@@ -32,7 +32,7 @@ int sockettest_main(int argc, char *argv[])
 	portno = atoi(argv[2]);
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd < 0) {
-		printf("ERROR opening socket\n");
+		printf("ERROR opening socket, sockfd: %d\n", sockfd);
 		return -1;
 	}
 
@@ -46,22 +46,24 @@ int sockettest_main(int argc, char *argv[])
 	tv.tv_usec = 0;
 	n = setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const void *)&tv, sizeof(struct timeval));
 	if (n != 0) {
-		printf("ERROR setsockopt\n");
+		printf("ERROR setsockopt, n: %d\n", n);
 		goto errout;
 	}
 	printf("%s, 2\n", __func__);
 
 	n = dns_gethostip(argv[1], &serv_addr.sin_addr.s_addr);
 	if (n != 0) {
-		fprintf(stderr,"ERROR, no such host\n");
+		fprintf(stderr,"ERROR, no such host, n: %d\n", n);
 		goto errout;
 	}
 	printf("%s, 3, s_addr: 0x%08x\n", __func__, serv_addr.sin_addr.s_addr);
 
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_port = htons(portno);
-	if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) {
-		printf("ERROR connecting\n");
+	n = connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr));
+	if (n < 0)
+	{
+		printf("ERROR connecting, n: %d\n", n);
 		goto errout;
 	}
 	printf("%s, 4\n", __func__);
@@ -70,13 +72,13 @@ int sockettest_main(int argc, char *argv[])
 	strcpy(buffer, "hello from sockettest\n");
 	n = write(sockfd,buffer,strlen(buffer));
 	if (n < 0)
-		printf("ERROR writing to socket\n");
+		printf("ERROR writing to socket, n: %d\n", n);
 	printf("%s, 5\n", __func__);
 
 	bzero(buffer,256);
 	n = read(sockfd,buffer,255);
 	if (n < 0)
-		printf("ERROR reading from socket\n");
+		printf("ERROR reading from socket, n: %d\n", n);
 	printf("%s\n",buffer);
 
 errout:
