@@ -193,7 +193,10 @@ int mqttpub_main(int argc, char *argv[])
   int rc = 0;
 
   if (argc < 2)
-    mqttpub_usage();
+    {
+      mqttpub_usage();
+      return -1;
+    }
 
   mqttpub_getopts(argc, argv);
 
