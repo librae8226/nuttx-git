@@ -63,7 +63,8 @@ int linux_read(Network * n, unsigned char *buffer, int len, int timeout_ms)
   struct timeval interval = { timeout_ms / 1000, (timeout_ms % 1000) * 1000 };
   /*
    * FIXME
-   * Force the tv_usec to be < 100ms, need to find the root cause...
+   * We only support the minimum 1 dsec time slice now,
+   * so if tv_usec < 100000, it will be truncated to be 0, then it blocks...
    */
   if (interval.tv_sec < 0 || (interval.tv_sec == 0 && interval.tv_usec < 100000L))
     {
