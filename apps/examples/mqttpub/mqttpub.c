@@ -222,7 +222,7 @@ int mqttpub_main(int argc, char *argv[])
   msg.retained = false;
   msg.dup = false;
   if (g_opts.msg == NULL)
-    sprintf(msgbuf, "Hello! QoS%d message", msg.qos);
+    sprintf(msgbuf, "Hi from NuttX! QoS%d message", msg.qos);
   else
     strcpy(msgbuf, g_opts.msg);
   msg.payload = (void *)msgbuf;
