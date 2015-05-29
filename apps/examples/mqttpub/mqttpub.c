@@ -55,8 +55,6 @@
 
 #include <apps/netutils/MQTTClient.h>
 
-volatile int g_toStop = 0;
-
 void mqttpub_usage(void)
 {
   printf("MQTT publisher\n");
@@ -73,43 +71,41 @@ void mqttpub_usage(void)
   printf("  --password none\n");
 }
 
-struct
-  {
-    char *clientid;
-    char *delimiter;
-    int maxdatalen;
-    int qos;
-    int retained;
-    char *username;
-    char *password;
-    char *host;
-    int port;
-    int verbose;
-    char *msg;
-  } g_opts =
+struct opts_s
 {
-"mqtt-publisher", "\n", 100, 0, 0, NULL, NULL, "localhost", 1883, 0, NULL};
+  char *clientid;
+  char *delimiter;
+  int maxdatalen;
+  int qos;
+  int retained;
+  char *username;
+  char *password;
+  char *host;
+  int port;
+  int verbose;
+  char *msg;
+};
 
-void mqttpub_getopts(int argc, char **argv)
+void mqttpub_getopts(int argc, char **argv, struct opts_s *p_opts)
 {
   int count = 2;
 
   while (count < argc)
     {
       if (strcmp(argv[count], "--retained") == 0)
-        g_opts.retained = 1;
+        p_opts->retained = 1;
       if (strcmp(argv[count], "--verbose") == 0)
-        g_opts.verbose = 1;
+        p_opts->verbose = 1;
       else if (strcmp(argv[count], "--qos") == 0)
         {
           if (++count < argc)
             {
               if (strcmp(argv[count], "0") == 0)
-                g_opts.qos = 0;
+                p_opts->qos = 0;
               else if (strcmp(argv[count], "1") == 0)
-                g_opts.qos = 1;
+                p_opts->qos = 1;
               else if (strcmp(argv[count], "2") == 0)
-                g_opts.qos = 2;
+                p_opts->qos = 2;
               else
                 mqttpub_usage();
             }
@@ -119,56 +115,56 @@ void mqttpub_getopts(int argc, char **argv)
       else if (strcmp(argv[count], "--host") == 0)
         {
           if (++count < argc)
-            g_opts.host = argv[count];
+            p_opts->host = argv[count];
           else
             mqttpub_usage();
         }
       else if (strcmp(argv[count], "--port") == 0)
         {
           if (++count < argc)
-            g_opts.port = atoi(argv[count]);
+            p_opts->port = atoi(argv[count]);
           else
             mqttpub_usage();
         }
       else if (strcmp(argv[count], "--msg") == 0)
         {
           if (++count < argc)
-            g_opts.msg = argv[count];
+            p_opts->msg = argv[count];
           else
             mqttpub_usage();
         }
       else if (strcmp(argv[count], "--clientid") == 0)
         {
           if (++count < argc)
-            g_opts.clientid = argv[count];
+            p_opts->clientid = argv[count];
           else
             mqttpub_usage();
         }
       else if (strcmp(argv[count], "--username") == 0)
         {
           if (++count < argc)
-            g_opts.username = argv[count];
+            p_opts->username = argv[count];
           else
             mqttpub_usage();
         }
       else if (strcmp(argv[count], "--password") == 0)
         {
           if (++count < argc)
-            g_opts.password = argv[count];
+            p_opts->password = argv[count];
           else
             mqttpub_usage();
         }
       else if (strcmp(argv[count], "--maxdatalen") == 0)
         {
           if (++count < argc)
-            g_opts.maxdatalen = atoi(argv[count]);
+            p_opts->maxdatalen = atoi(argv[count]);
           else
             mqttpub_usage();
         }
       else if (strcmp(argv[count], "--delimiter") == 0)
         {
           if (++count < argc)
-            g_opts.delimiter = argv[count];
+            p_opts->delimiter = argv[count];
           else
             mqttpub_usage();
         }
@@ -186,6 +182,7 @@ int mqttpub_main(int argc, char *argv[])
   Client c;
   MQTTMessage msg;
   MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
+  struct opts_s opts = {"mqtt-publisher", "\n", 100, 0, 0, NULL, NULL, "localhost", 1883, 0, NULL};
   char *topic = NULL;
   char buf[100];
   char msgbuf[100];
@@ -198,13 +195,13 @@ int mqttpub_main(int argc, char *argv[])
       return -1;
     }
 
-  mqttpub_getopts(argc, argv);
+  mqttpub_getopts(argc, argv, &opts);
 
   topic = argv[1];
   printf("Using topic %s\n", topic);
 
   NewNetwork(&n);
-  if (ConnectNetwork(&n, g_opts.host, g_opts.port) != OK)
+  if (ConnectNetwork(&n, opts.host, opts.port) != OK)
     {
       printf("Failed to connect network, exit\n");
       return -EFAULT;
@@ -213,25 +210,28 @@ int mqttpub_main(int argc, char *argv[])
   MQTTClient(&c, &n, 1000, (unsigned char *)buf, 100, (unsigned char *)readbuf, 100);
 
   data.MQTTVersion = 3;
-  data.clientID.cstring = g_opts.clientid;
+  data.clientID.cstring = opts.clientid;
 
   rc = MQTTConnect(&c, &data);
   printf("Connected %d\n", rc);
 
-  msg.qos = g_opts.qos;
+  bzero(msgbuf, sizeof(msgbuf));
+  msg.qos = opts.qos;
   msg.retained = false;
   msg.dup = false;
-  if (g_opts.msg == NULL)
+  if (opts.msg == NULL)
     sprintf(msgbuf, "Hi from NuttX! QoS%d message", msg.qos);
-  else
-    strcpy(msgbuf, g_opts.msg);
+  else {
+    strcpy(msgbuf, opts.msg);
+    printf("custom message\n");
+  }
   msg.payload = (void *)msgbuf;
   msg.payloadlen = strlen(msgbuf) + 1;
 
   rc = MQTTPublish(&c, topic, &msg);
   if (rc != 0)
     printf("Error publish, rc: %d\n", rc);
-  if (g_opts.qos > 0)
+  if (opts.qos > 0)
     MQTTYield(&c, 100);
 
   printf("Stopping\n");

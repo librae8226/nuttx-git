@@ -89,23 +89,20 @@ void cfinish(int sig)
   toStop = 1;
 }
 
-struct opts_struct
-  {
-    char *clientid;
-    int nodelimiter;
-    char *delimiter;
-    enum QoS qos;
-    char *username;
-    char *password;
-    char *host;
-    int port;
-    int showtopics;
-  } opts =
+struct opts_s
 {
-(char *)"mqtt-subscriber", 0, (char *)"\n", QOS2, NULL, NULL,
-    (char *)"localhost", 1883, 0};
+  char *clientid;
+  int nodelimiter;
+  char *delimiter;
+  enum QoS qos;
+  char *username;
+  char *password;
+  char *host;
+  int port;
+  int showtopics;
+};
 
-void getopts(int argc, char **argv)
+void getopts(int argc, char **argv, struct opts_s *p_opts)
 {
   int count = 2;
 
@@ -116,11 +113,11 @@ void getopts(int argc, char **argv)
           if (++count < argc)
             {
               if (strcmp(argv[count], "0") == 0)
-                opts.qos = QOS0;
+                p_opts->qos = QOS0;
               else if (strcmp(argv[count], "1") == 0)
-                opts.qos = QOS1;
+                p_opts->qos = QOS1;
               else if (strcmp(argv[count], "2") == 0)
-                opts.qos = QOS2;
+                p_opts->qos = QOS2;
               else
                 usage();
             }
@@ -130,53 +127,53 @@ void getopts(int argc, char **argv)
       else if (strcmp(argv[count], "--host") == 0)
         {
           if (++count < argc)
-            opts.host = argv[count];
+            p_opts->host = argv[count];
           else
             usage();
         }
       else if (strcmp(argv[count], "--port") == 0)
         {
           if (++count < argc)
-            opts.port = atoi(argv[count]);
+            p_opts->port = atoi(argv[count]);
           else
             usage();
         }
       else if (strcmp(argv[count], "--clientid") == 0)
         {
           if (++count < argc)
-            opts.clientid = argv[count];
+            p_opts->clientid = argv[count];
           else
             usage();
         }
       else if (strcmp(argv[count], "--username") == 0)
         {
           if (++count < argc)
-            opts.username = argv[count];
+            p_opts->username = argv[count];
           else
             usage();
         }
       else if (strcmp(argv[count], "--password") == 0)
         {
           if (++count < argc)
-            opts.password = argv[count];
+            p_opts->password = argv[count];
           else
             usage();
         }
       else if (strcmp(argv[count], "--delimiter") == 0)
         {
           if (++count < argc)
-            opts.delimiter = argv[count];
+            p_opts->delimiter = argv[count];
           else
-            opts.nodelimiter = 1;
+            p_opts->nodelimiter = 1;
         }
       else if (strcmp(argv[count], "--showtopics") == 0)
         {
           if (++count < argc)
             {
               if (strcmp(argv[count], "on") == 0)
-                opts.showtopics = 1;
+                p_opts->showtopics = 1;
               else if (strcmp(argv[count], "off") == 0)
-                opts.showtopics = 0;
+                p_opts->showtopics = 0;
               else
                 usage();
             }
@@ -201,10 +198,10 @@ void printstrbylen(char *msg, char *str, int len)
   printf("\n");
 }
 
-void messageArrived(MessageData * md)
+void messageArrived(MessageData * md, struct opts_s *p_opts)
 {
   MQTTMessage *message = md->message;
-  if (opts.showtopics)
+  if (p_opts->showtopics)
     printstrbylen("topic:", md->topicName->lenstring.data,
                   md->topicName->lenstring.len);
   printstrbylen("payload:", (char *)message->payload, message->payloadlen);
@@ -219,6 +216,7 @@ int mqttsub_main(int argc, char *argv[])
   int rc = 0;
   unsigned char buf[100];
   unsigned char readbuf[100];
+  struct opts_s opts = {(char *)"mqtt-subscriber", 0, (char *)"\n", QOS2, NULL, NULL, (char *)"localhost", 1883, 0};
 
   if (argc < 2)
     usage();
@@ -230,7 +228,7 @@ int mqttsub_main(int argc, char *argv[])
   if (opts.showtopics)
     printf("topic is %s\n", topic);
 
-  getopts(argc, argv);
+  getopts(argc, argv, &opts);
 
   Network n;
   Client c;
