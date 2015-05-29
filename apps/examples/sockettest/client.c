@@ -1,4 +1,5 @@
 #include <nuttx/config.h>
+#include <nuttx/clock.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -42,14 +43,14 @@ int sockettest_main(int argc, char *argv[])
 	 * debug by Librae
 	 */
 	struct timeval tv;
-	tv.tv_sec = 5;
-	tv.tv_usec = 0;
+	tv.tv_sec = 0;
+	tv.tv_usec = 1 * USEC_PER_DSEC;
 	n = setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const void *)&tv, sizeof(struct timeval));
 	if (n != 0) {
 		printf("ERROR setsockopt, n: %d\n", n);
 		goto errout;
 	}
-	printf("%s, 2\n", __func__);
+	printf("%s, 2, tv_usec: %d\n", __func__, tv.tv_usec);
 
 	n = dns_gethostip(argv[1], &serv_addr.sin_addr.s_addr);
 	if (n != 0) {
@@ -69,7 +70,7 @@ int sockettest_main(int argc, char *argv[])
 	printf("%s, 4\n", __func__);
 
 	bzero(buffer,256);
-	strcpy(buffer, "hello from sockettest\n");
+	strcpy(buffer, "hello from sockettest");
 	n = write(sockfd,buffer,strlen(buffer));
 	if (n < 0)
 		printf("ERROR writing to socket, n: %d\n", n);
